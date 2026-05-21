@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1200" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#6f7f94"/>
+      <stop offset="0.22" stop-color="#4d5f74"/>
+      <stop offset="0.48" stop-color="#283746"/>
+      <stop offset="0.76" stop-color="#111923"/>
+      <stop offset="1" stop-color="#05070c"/>
+    </linearGradient>
+    <linearGradient id="horizon" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#1b2a3d"/>
+      <stop offset="0.42" stop-color="#394357"/>
+      <stop offset="0.72" stop-color="#4d3645"/>
+      <stop offset="1" stop-color="#11141e"/>
+    </linearGradient>
+    <linearGradient id="snow" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#d7e1ec"/>
+      <stop offset="0.42" stop-color="#7d8da0"/>
+      <stop offset="1" stop-color="#111722"/>
+    </linearGradient>
+    <filter id="mist">
+      <feGaussianBlur stdDeviation="24"/>
+    </filter>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.08"/>
+      </feComponentTransfer>
+    </filter>
+  </defs>
+
+  <rect width="1920" height="1200" fill="url(#sky)"/>
+  <path d="M0 506c165-94 286-120 430-86 133 31 222 98 348 94 155-6 241-118 406-128 158-9 282 96 398 88 130-9 218-88 338-112v838H0z" fill="url(#horizon)" opacity=".82"/>
+  <path d="M0 700l140-160 126 94 126-206 171 240 122-105 144 176 117-136 132 93 170-248 193 292 124-107 145 142 110-80v505H0z" fill="#07111d"/>
+  <path d="M255 633l137-205 82 116-78-33-56 82-39-21zM1101 692l168-244 105 159-99-51-62 90-45-32zM1469 731l96-98 145 142-100-54-46 47z" fill="url(#snow)" opacity=".62"/>
+  <path d="M0 785c268-72 505-61 711-22 220 42 402 20 598-35 245-70 444-43 611 33v439H0z" fill="#05070b" opacity=".72"/>
+  <g filter="url(#mist)" opacity=".38">
+    <path d="M-80 290c228-72 434-78 621-14 194 67 349 31 531-15 206-52 413-20 619 56 86 31 181 41 309 12v164H-80z" fill="#d8e2ef"/>
+    <path d="M-120 714c230-86 453-100 684-40 244 63 456 29 679-39 220-67 442-52 713 52v184H-120z" fill="#667589"/>
+  </g>
+  <g opacity=".42">
+    <circle cx="1510" cy="278" r="82" fill="#f1f5f9"/>
+    <circle cx="1484" cy="258" r="82" fill="#536071"/>
+  </g>
+  <rect width="1920" height="1200" fill="#020617" opacity=".26"/>
+  <rect width="1920" height="1200" filter="url(#grain)" opacity=".5"/>
+</svg>

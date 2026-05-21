@@ -1,0 +1,11 @@
+.agentmesh
+.pytest_cache
+**/__pycache__
+**/*.pyc
+dashboard/node_modules
+dashboard/smoke-artifacts
+dashboard/screenshots
+dashboard/.vite
+.venv
+venv
+.git

@@ -1,0 +1,172 @@
+@import "tailwindcss";
+
+@theme {
+  --color-mesh-ink: #111827;
+  --color-mesh-panel: #ffffff;
+  --color-mesh-muted: #f3f4f6;
+  --color-mesh-border: #d1d5db;
+  --color-mesh-canvas: #eef2f5;
+  --color-mesh-rail: #073b3a;
+  --color-mesh-teal: #0f766e;
+  --color-mesh-amber: #b45309;
+  --color-mesh-rose: #be123c;
+}
+
+body {
+  margin: 0;
+  background: var(--color-mesh-canvas);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.dark {
+  --color-mesh-ink: #f8fafc;
+  --color-mesh-panel: #0f172a;
+  --color-mesh-muted: #1e293b;
+  --color-mesh-border: #334155;
+  --color-mesh-canvas: #020617;
+  --color-mesh-rail: #042f2e;
+  --color-mesh-teal: #2dd4bf;
+}
+
+.vision-page {
+  min-height: 100dvh;
+  background-color: #08111c;
+  background-image:
+    linear-gradient(120deg, rgb(4 10 18 / 28%), rgb(8 11 17 / 18)),
+    url("/vision-space.svg");
+  background-position: center;
+  background-size: cover;
+  color: #f8fafc;
+  font-family: "SF Pro Display", Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+.vision-shell {
+  min-height: calc(100dvh - 48px);
+  border: 1px solid rgb(255 255 255 / 32%);
+  border-radius: 30px;
+  background: rgb(86 94 105 / 46%);
+  box-shadow: 0 26px 76px rgb(0 0 0 / 38%), inset 0 1px 0 rgb(255 255 255 / 28%);
+  backdrop-filter: blur(28px) saturate(112%);
+}
+
+.vision-glass {
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 22px;
+  background: rgb(92 101 113 / 52%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 18%), 0 14px 36px rgb(0 0 0 / 26%);
+  backdrop-filter: blur(22px) saturate(110%);
+}
+
+.vision-glass-soft {
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 22px;
+  background: rgb(104 112 123 / 46%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 20%), 0 12px 30px rgb(0 0 0 / 24%);
+  backdrop-filter: blur(20px) saturate(110%);
+}
+
+.vision-pill {
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 999px;
+  background: rgb(22 24 27 / 72%);
+  color: rgb(255 255 255 / 88%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 16%);
+  backdrop-filter: blur(18px);
+}
+
+.vision-pill-active {
+  border-color: rgb(255 255 255 / 28%);
+  background: rgb(24 24 30 / 96%);
+  color: white;
+}
+
+.vision-rail {
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 999px;
+  background: rgb(139 147 158 / 42%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%), 0 18px 40px rgb(0 0 0 / 25%);
+  backdrop-filter: blur(22px) saturate(110%);
+}
+
+.vision-toggle {
+  border-radius: 999px;
+  background: rgb(255 255 255 / 18%);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 20%);
+}
+
+.vision-toggle-on {
+  background: #2f8cff;
+}
+
+.vision-scroll {
+  scrollbar-color: rgb(255 255 255 / 36%) transparent;
+}
+
+.trace-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 24%);
+  color: rgb(255 255 255 / 84%);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-weight: 600;
+  padding: 0.45rem 0.75rem;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.trace-action:hover {
+  border-color: rgb(125 211 252 / 42%);
+  background: rgb(14 165 233 / 16%);
+}
+
+.flow-node {
+  width: 210px;
+  height: 86px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 18px;
+  background: rgb(0 0 0 / 34%);
+  color: #fff;
+  padding: 0.7rem 0.8rem;
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%), 0 12px 24px rgb(0 0 0 / 24%);
+  backdrop-filter: blur(16px);
+}
+
+.flow-node-active {
+  border-color: rgb(125 211 252 / 72%);
+  background: rgb(14 165 233 / 24%);
+}
+
+.flow-node-failed {
+  border-color: rgb(251 113 133 / 72%);
+  background: rgb(244 63 94 / 18%);
+}
+
+.react-flow {
+  background: rgb(0 0 0 / 10%);
+}
+
+.react-flow__controls {
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+.react-flow__controls-button {
+  background: rgb(20 24 31 / 92%);
+  border-bottom-color: rgb(255 255 255 / 10%);
+  color: #fff;
+}
+
+.react-flow__minimap {
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgb(15 23 42 / 78%);
+}

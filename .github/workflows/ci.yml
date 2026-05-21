@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Compile
+        run: python -m compileall -q src
+      - name: Test
+        run: pytest
+      - name: Demo seed and trace validation
+        run: |
+          python -m agentmesh.cli --db .agentmesh/ci.db demo seed --reset
+          python -m agentmesh.cli --db .agentmesh/ci.db validate traces --json
+          python -m agentmesh.cli --db .agentmesh/ci.db traces list --limit 3
+
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - uses: browser-actions/setup-chrome@v1
+        id: setup-chrome
+      - name: Configure Chrome path
+        run: echo "CHROME_PATH=${{ steps.setup-chrome.outputs.chrome-path }}" >> "$GITHUB_ENV"
+      - name: Build dashboard
+        run: |
+          cd dashboard
+          npm ci
+          npm run build
+      - name: Smoke dashboard
+        run: |
+          python -m pip install -e .
+          python -m agentmesh.cli --db .agentmesh/dashboard-ci.db demo seed --reset
+          python -m agentmesh.cli --db .agentmesh/dashboard-ci.db dashboard --host 127.0.0.1 --port 8795 &
+          sleep 5
+          cd dashboard
+          AGENTMESH_DASHBOARD_URL=http://127.0.0.1:8795 npm run test:smoke

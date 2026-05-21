@@ -1,0 +1,14 @@
+title = "AgentMesh secret scanning allowlist"
+
+[allowlist]
+description = "Intentional fake secrets used to test redaction behavior. These are not valid credentials."
+paths = [
+  '''tests/test_hardening.py''',
+  '''tests/test_provider_adapters.py''',
+]
+regexes = [
+  '''sk-test_abcdefghijklmnopqrstuvwxyz''',
+  '''Bearer abcdefghijklmnopqrstuvwxyz123456''',
+  '''postgres://user:password@example.com/db''',
+  '''postgres://user:pass@example.com/db''',
+]

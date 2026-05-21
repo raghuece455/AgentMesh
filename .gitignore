@@ -1,0 +1,23 @@
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+**/*.egg-info/
+.agentmesh/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+!dashboard/dist/
+!dashboard/dist/**
+dashboard/node_modules/
+dashboard/smoke-artifacts/
+dashboard/tsconfig.tsbuildinfo
+
+# Claude Code session data — never commit
+.claude/
+
+# Local secrets
+.env

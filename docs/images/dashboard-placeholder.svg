@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-label="AgentMesh dashboard placeholder">
+  <rect width="1200" height="720" fill="#0f172a"/>
+  <rect x="40" y="36" width="1120" height="88" rx="12" fill="#111827" stroke="#334155"/>
+  <text x="72" y="88" fill="#e5e7eb" font-family="Arial, sans-serif" font-size="34">AgentMesh Dashboard</text>
+  <rect x="40" y="152" width="300" height="520" rx="12" fill="#111827" stroke="#334155"/>
+  <rect x="372" y="152" width="788" height="120" rx="12" fill="#111827" stroke="#334155"/>
+  <rect x="372" y="300" width="788" height="372" rx="12" fill="#111827" stroke="#334155"/>
+  <text x="72" y="204" fill="#93c5fd" font-family="Arial, sans-serif" font-size="22">Traces</text>
+  <text x="404" y="204" fill="#93c5fd" font-family="Arial, sans-serif" font-size="22">Metrics</text>
+  <text x="404" y="352" fill="#93c5fd" font-family="Arial, sans-serif" font-size="22">Execution Timeline</text>
+  <g fill="#1f2937" stroke="#334155">
+    <rect x="72" y="232" width="236" height="64" rx="8"/>
+    <rect x="72" y="316" width="236" height="64" rx="8"/>
+    <rect x="72" y="400" width="236" height="64" rx="8"/>
+    <rect x="404" y="228" width="160" height="28" rx="6"/>
+    <rect x="588" y="228" width="160" height="28" rx="6"/>
+    <rect x="772" y="228" width="160" height="28" rx="6"/>
+    <rect x="404" y="384" width="704" height="52" rx="8"/>
+    <rect x="404" y="456" width="704" height="52" rx="8"/>
+    <rect x="404" y="528" width="704" height="52" rx="8"/>
+  </g>
+</svg>
