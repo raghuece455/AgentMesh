@@ -12,7 +12,7 @@ Agent workflows are hard to debug once prompts, tools, memory, retrieval, retrie
 
 > **Works with any LLM.** OpenAI, Anthropic, Gemini, Ollama, vLLM, Azure OpenAI — or bring your own provider.
 
-![Overview / Trace Launchpad](dashboard/screenshots/overview-trace-launchpad.png)
+![Overview / Trace Launchpad](https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/overview-trace-launchpad.png)
 
 ---
 
@@ -143,10 +143,10 @@ The local dashboard is built around production debugging workflows:
 | **Memory & RAG** | Memory operations, versioned records, retrieved chunks, similarity scores, source metadata |
 | **Replay Studio** | Deterministic, simulated, or live replay from any checkpoint |
 
-![Trace Detail Cockpit](dashboard/screenshots/trace-detail-cockpit.png)
-![Workflow Graph](dashboard/screenshots/workflow-graph.png)
-![Cost Center](dashboard/screenshots/cost-center.png)
-![Replay Studio](dashboard/screenshots/replay-studio.png)
+![Trace Detail Cockpit](https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/trace-detail-cockpit.png)
+![Workflow Graph](https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/workflow-graph.png)
+![Cost Center](https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/cost-center.png)
+![Replay Studio](https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/replay-studio.png)
 
 ---
 
