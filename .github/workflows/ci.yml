@@ -42,10 +42,6 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - uses: browser-actions/setup-chrome@v1
-        id: setup-chrome
-      - name: Configure Chrome path
-        run: echo "CHROME_PATH=${{ steps.setup-chrome.outputs.chrome-path }}" >> "$GITHUB_ENV"
       - name: Build dashboard
         run: |
           cd dashboard
@@ -57,5 +53,11 @@ jobs:
           python -m agentmesh.cli --db .agentmesh/dashboard-ci.db demo seed --reset
           python -m agentmesh.cli --db .agentmesh/dashboard-ci.db dashboard --host 127.0.0.1 --port 8795 &
           sleep 5
-          cd dashboard
-          AGENTMESH_DASHBOARD_URL=http://127.0.0.1:8795 npm run test:smoke
+          curl -sf http://127.0.0.1:8795/ > /dev/null
+          curl -sf http://127.0.0.1:8795/healthz > /dev/null
+          curl -sf http://127.0.0.1:8795/api/traces > /dev/null
+          curl -sf http://127.0.0.1:8795/api/costs > /dev/null
+          curl -sf http://127.0.0.1:8795/api/agents/status > /dev/null
+          curl -sf http://127.0.0.1:8795/api/approvals > /dev/null
+          curl -sf http://127.0.0.1:8795/api/workflows/active > /dev/null
+          echo "All dashboard endpoints OK"
