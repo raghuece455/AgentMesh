@@ -32,7 +32,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     environment:
       name: pypi
-      url: https://pypi.org/p/agentmesh
+      url: https://pypi.org/p/agentmesh-ai
     permissions:
       id-token: write
     steps:
@@ -44,4 +44,3 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         # Uses OIDC trusted publishing — no API token needed.
-        # Set up trusted publishing at: https://pypi.org/manage/account/publishing/
