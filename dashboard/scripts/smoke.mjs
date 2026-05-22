@@ -23,6 +23,8 @@ async function main() {
     `--user-data-dir=${profileDir}`,
     '--headless=new',
     '--disable-gpu',
+    '--no-sandbox',            // required in CI / container environments
+    '--disable-dev-shm-usage', // prevents shared-memory errors in Docker/CI
     '--no-first-run',
     '--window-size=1600,1100',
     baseUrl,
