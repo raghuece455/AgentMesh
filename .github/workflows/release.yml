@@ -69,3 +69,54 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         # Uses OIDC trusted publishing — no API token needed.
+
+  publish-npm:
+    runs-on: ubuntu-latest
+    # Publishes the TypeScript SDK (sdks/typescript) on tag pushes, independently of the PyPI job.
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/agentmesh-sdk
+    permissions:
+      contents: read
+      # OIDC trusted publishing: npm verifies this workflow, so no npm token is stored.
+      id-token: write
+    defaults:
+      run:
+        working-directory: sdks/typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+      - name: Use an npm version that supports trusted publishing
+        run: npm install -g npm@^11.5.1
+      - name: Decide whether this tag publishes the SDK
+        id: version
+        run: |
+          package_version=$(node -p "require('./package.json').version")
+          sdk_version=$(node -e "console.log(/VERSION = \"([^\"]+)\"/.exec(require('fs').readFileSync('src/version.ts', 'utf8'))[1])")
+          if [ "$package_version" != "$sdk_version" ]; then
+            echo "::error::package.json ($package_version) and src/version.ts ($sdk_version) disagree"
+            exit 1
+          fi
+          if npm view "agentmesh-sdk@$package_version" version > /dev/null 2>&1; then
+            # A Python-only release: the SDK version was not bumped, so there is nothing to publish.
+            echo "::notice::agentmesh-sdk@$package_version is already on npm; skipping"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${GITHUB_REF_NAME#v}" != "$package_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match agentmesh-sdk version $package_version"
+            exit 1
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        if: steps.version.outputs.publish == 'true'
+        run: npm ci
+      - name: Publish to npm
+        if: steps.version.outputs.publish == 'true'
+        # prepublishOnly builds and runs the tests first. Provenance is attached automatically.
+        run: npm publish
