@@ -7,7 +7,7 @@ from typing import Any
 from agentmesh.types import JsonObject, JsonValue, redact_secrets, safe_json
 
 
-def export_otel_json(trace_export: JsonObject, version: str = "0.4.0") -> JsonObject:
+def export_otel_json(trace_export: JsonObject, version: str = "0.4.1") -> JsonObject:
     """Convert an AgentMesh trace export into OpenTelemetry-compatible JSON.
 
     This intentionally produces collector-shaped JSON but does not push to an

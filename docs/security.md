@@ -1,6 +1,6 @@
 # Security
 
-AgentMesh is `v0.4.0` software. The security posture is **local-first and auth-ready**, designed for safe local development, evaluation, and single-team self-hosting — not yet enterprise-hardened.
+AgentMesh is `v0.4.1` software. The security posture is **local-first and auth-ready**, designed for safe local development, evaluation, and single-team self-hosting — not yet enterprise-hardened.
 
 ---
 

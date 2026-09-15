@@ -3,7 +3,7 @@
 [![CI](https://github.com/raghuece455/AgentMesh/actions/workflows/ci.yml/badge.svg)](https://github.com/raghuece455/AgentMesh/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-0.4.0-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.1-orange.svg)](CHANGELOG.md)
 [![OpenTelemetry GenAI](https://img.shields.io/badge/OpenTelemetry-GenAI%20semconv-blueviolet.svg)](docs/integrations.md)
 [![MCP](https://img.shields.io/badge/MCP-server-black.svg)](docs/mcp.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -445,7 +445,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy and reporting instru
 
 ## Project Status
 
-`v0.4.0` — alpha. Ingestion, SDK, dashboard, and runtime are ready for local development, evaluation, and single-team self-hosting.
+`v0.4.1` — alpha. Ingestion, SDK, dashboard, and runtime are ready for local development, evaluation, and single-team self-hosting.
 
 **Implemented:** OTLP/HTTP trace ingestion with GenAI semantic-convention mapping, Python and TypeScript tracing SDKs, OpenAI and Anthropic auto-instrumentation, sessions/users/tags, scores and feedback, automatic trace insights, datasets, experiments and LLM-as-judge evaluators, alerts with Slack/Discord/webhook delivery, MCP server, per-MTok pricing with cache rates and community price sync, retention pruning, SQLite and PostgreSQL storage, React dashboard (trace explorer, sessions, datasets & evals, alerts, connect, workflow graph, cost center, tools, memory & RAG, replay studio), AgentMesh runtime, CLI, Docker, CI.
 
