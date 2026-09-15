@@ -19,11 +19,13 @@ export AGENTMESH_AUTH_MODE=api_key
 export AGENTMESH_API_KEY=my-secret-key
 ```
 
-All protected routes then require:
+All `/api/*` routes, `POST /v1/traces`, and `WS /ws/events` then require:
 
 ```
 Authorization: Bearer my-secret-key
 ```
+
+`X-AgentMesh-Api-Key: my-secret-key` is also accepted. `/`, `/assets/*`, `/healthz`, `/readyz`, and `/metrics` stay open.
 
 ---
 
@@ -41,7 +43,7 @@ Authorization: Bearer my-secret-key
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/traces` | List traces. Query params: `limit`, `offset`, `status` (`succeeded`/`failed`), `workflow_name`, `agent_name` |
+| `GET` | `/api/traces` | List traces. Query params: `limit`, `offset`, `q`, `status`, `workflow`, `agent`, `task`, `model`, `provider`, `tool`, `error_type`, `min_cost`, `max_cost`, `min_latency`, `max_latency`, `started_after`, `started_before`, `environment`, `is_demo` |
 | `GET` | `/api/traces/{trace_id}` | Full trace detail — spans, events, model calls, tool calls, diagnosis |
 | `GET` | `/api/traces/{trace_id}/replay` | Replay metadata and checkpoint list |
 | `GET` | `/api/traces/{trace_id}/costs` | Cost breakdown by step and agent |
@@ -52,6 +54,76 @@ Authorization: Bearer my-secret-key
 | `GET` | `/api/traces/{trace_id}/export/otel-json` | Export in OpenTelemetry JSON format directly |
 | `POST` | `/api/traces/import` | Import a previously exported trace JSON |
 | `GET` | `/api/compare` | Compare two traces side by side. Query params: `left=<trace_id>`, `right=<trace_id>` |
+| `GET` | `/api/traces/{trace_id}/insights` | Automatic insights: root cause, tool loops, repeated prompts, context growth, cache usage, hotspots |
+| `GET` | `/api/traces/{trace_id}/scores` | Scores attached to the trace |
+
+`/api/traces` also accepts `session_id`, `user_id`, `tag`, and `source` (`runtime`, `otlp`, `sdk`, `file`) filters.
+
+---
+
+## Ingestion (OpenTelemetry)
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/v1/traces` | OTLP/HTTP trace receiver. `application/json` or `application/x-protobuf` (requires the `otlp` extra); gzip/deflate bodies accepted. Returns an OTLP `ExportTraceServiceResponse`. See [integrations.md](integrations.md). |
+| `GET` | `/api/integrations` | The server's OTLP endpoint URL, protobuf support, auth mode, and content-capture setting |
+
+---
+
+## Sessions and Scores
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/sessions` | Sessions (grouped traces) with turn count, failures, cost. Query params: `limit`, `offset`, `user_id` |
+| `GET` | `/api/sessions/{session_id}` | Every trace in the session in order, with inputs, outputs, and scores |
+| `POST` | `/api/scores` | Create a score: `{"trace_id", "name", "value": number/bool/string, "span_id"?, "comment"?, "label"?, "passed"?, "source"?, "metadata"?}` |
+| `GET` | `/api/scores` | List scores. Query params: `trace_id`, `name`, `limit` |
+
+---
+
+## Datasets and Experiments
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/datasets` | Datasets with item count, experiment count, and last run |
+| `POST` | `/api/datasets` | Create: `{"name", "description"?, "metadata"?}` (`409` if the name exists) |
+| `GET` | `/api/datasets/{name_or_id}` | Dataset with a page of its items. Query params: `limit` (default 5000), `offset`; `item_count` is the total |
+| `DELETE` | `/api/datasets/{name_or_id}` | Delete the dataset, its items, and its experiments |
+| `POST` | `/api/datasets/{name_or_id}/items` | Add items `{"items": [{"input", "expected"?, "metadata"?, "item_id"?}]}` or copy a trace `{"trace_id", "span_id"?, "use_trace_output"?, "expected"?}` |
+| `DELETE` | `/api/datasets/{name_or_id}/items/{item_id}` | Remove one item |
+| `GET` | `/api/experiments` | Experiments, newest first, with summaries, cost, and tokens. Query params: `dataset`, `limit` |
+| `POST` | `/api/experiments` | Create or update an experiment and upsert its results (used by the SDKs) |
+| `GET` | `/api/experiments/{experiment_id}` | Experiment with per-item results, scores, cost, and trace ids |
+| `GET` | `/api/experiments/compare?base=&candidate=` | Item-by-item comparison: counts, score deltas, cost and latency change, changed items first |
+| `DELETE` | `/api/experiments/{experiment_id}` | Delete one experiment |
+
+See [datasets-and-experiments.md](datasets-and-experiments.md).
+
+---
+
+## Alerts
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/alerts/kinds` | Rule kinds with descriptions, and the scheduler interval |
+| `GET` | `/api/alerts/rules` | Rules with state, last value, and last fired time (webhook URLs and secrets masked) |
+| `POST` | `/api/alerts/rules` | Create: `{"name", "kind", "threshold", "window"?, "cooldown"?, "filters"?, "channel"?: {"url", "format"?, "secret"?, "notify_resolved"?}, "enabled"?}` |
+| `PATCH` | `/api/alerts/rules/{rule_id_or_name}` | Update any of the fields above |
+| `DELETE` | `/api/alerts/rules/{rule_id_or_name}` | Delete a rule |
+| `POST` | `/api/alerts/rules/{rule_id_or_name}/test` | Send a test notification; returns `{"delivered", "error"}` |
+| `POST` | `/api/alerts/check` | Evaluate every enabled rule now. Query param: `deliver` (default `true`) |
+| `GET` | `/api/alerts/events` | Alert history. Query params: `rule`, `limit` |
+
+See [alerts.md](alerts.md).
+
+---
+
+## Pricing
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/pricing` | All configured price rules |
+| `GET` | `/api/pricing?model=<model>&provider=<provider>` | The rule used for one model |
 
 ---
 

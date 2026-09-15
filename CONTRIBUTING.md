@@ -19,6 +19,22 @@ python -m compileall -q src
 python -m agentmesh.cli doctor
 ```
 
+To also run the PostgreSQL variants of the storage tests (skipped otherwise), point them at an empty database you can drop tables in:
+
+```bash
+pip install -e ".[dev,postgres]"
+docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:17
+AGENTMESH_TEST_POSTGRES_URL=postgresql://postgres:postgres@localhost:5432/postgres pytest
+```
+
+For TypeScript SDK changes:
+
+```bash
+cd sdks/typescript
+npm ci
+npm test            # builds ESM + CJS and runs node:test
+```
+
 For dashboard changes:
 
 ```bash
@@ -37,14 +53,22 @@ npm run test:smoke  # requires a running dashboard
 - Add a test for an untested path.
 
 **Substantial contributions welcome:**
-- New model provider adapters (Bedrock, Groq, Mistral, Cohere, etc.).
-- New vector store backends.
+- Attribute mappings for more frameworks and instrumentation libraries (`src/agentmesh/ingest.py`), with a test using a real exported span.
+- Auto-instrumentation for more clients — Gemini, Bedrock, Mistral, LiteLLM (`src/agentmesh/integrations/`).
+- New trace insights (`src/agentmesh/analysis.py`) — each one should come with a failing-trace fixture that shows the problem.
+- New evaluators (`src/agentmesh/evaluators.py`) and alert kinds (`src/agentmesh/alerts.py`), with tests.
+- TypeScript SDK integrations for more clients (`sdks/typescript/src/integrations/`).
+- Items from [ROADMAP.md](ROADMAP.md): OTLP logs, a gRPC receiver, ClickHouse storage.
+- New model provider adapters and vector store backends for the runtime.
 - Dashboard UI improvements (pages, charts, filtering, accessibility).
-- CLI subcommands or flags.
-- OTLP collector push integration.
-- Plugin system improvements.
-- Distributed worker support.
-- Performance work on the SQLite schema or query layer.
+- Performance work on the SQLite/PostgreSQL schema, ingestion path, or query layer. Queries are written once in the SQL subset both databases accept; `src/agentmesh/postgres.py` translates the rest.
+
+## Adding a Framework Mapping
+
+1. Export a real trace from the framework (for example with the OpenTelemetry `ConsoleSpanExporter`, or an OTLP/JSON file exporter).
+2. Add a test in `tests/test_ingest_otlp.py` that ingests the spans and asserts the trace name, model calls, costs, tool calls, and session.
+3. Extend the lookups in `normalize_span` / `_category` in `src/agentmesh/ingest.py`. Prefer the OpenTelemetry GenAI conventions and add framework-specific keys as fallbacks.
+4. Add the framework to `docs/integrations.md`.
 
 ## Development Principles
 
@@ -73,7 +97,7 @@ No issue numbers required in commit messages (link them in the PR description in
 2. Make your change with tests.
 3. Run `pytest` and confirm it passes.
 4. Run `python -m compileall -q src` to catch syntax errors.
-5. If you changed the dashboard, run `cd dashboard && npm run build`.
+5. If you changed the dashboard, run `cd dashboard && npm run build` and commit the updated `dashboard/dist` (it is bundled into the PyPI wheel; see `setup.py`).
 6. Open a pull request using the PR template. Include:
    - What the change does and why.
    - How you tested it.

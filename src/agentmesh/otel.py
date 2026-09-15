@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from agentmesh.dependencies import optional_import
-from agentmesh.types import JsonObject, safe_json
+from agentmesh.types import JsonObject, redact_secrets, safe_json
 
 
 @dataclass(slots=True)
@@ -35,8 +35,10 @@ class OpenTelemetryBridge:
         }
         if parent_span_id is not None:
             attributes["agentmesh.parent_span_id"] = parent_span_id
+        redacted = redact_secrets(safe_json(payload))
         with self._tracer.start_as_current_span(event_type, attributes=attributes) as span:
-            for key, value in safe_json(payload).items():
+            # Payloads leave this process, so apply the same secret redaction as storage and exports.
+            for key, value in (redacted if isinstance(redacted, dict) else {}).items():
                 if isinstance(value, str | int | float | bool):
                     span.set_attribute(f"agentmesh.payload.{key}", value)
                 else:

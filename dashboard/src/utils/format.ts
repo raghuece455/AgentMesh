@@ -108,3 +108,9 @@ export function traceModel(trace: TraceSummary, calls: ModelCallRecord[]): strin
 export function traceCostStatus(trace: TraceSummary, calls: ModelCallRecord[]): string {
   return trace.cost_status ?? traceModelCalls(trace, calls).find(call => call.cost_status)?.cost_status ?? 'unknown'
 }
+
+/** The server's validation message without the "POST /api/... failed with 422:" prefix. */
+export function errorText(caught: unknown): string {
+  const message = caught instanceof Error ? caught.message : String(caught)
+  return message.replace(/^(GET|POST|PATCH|DELETE) \S+ failed with \d+: /, '')
+}

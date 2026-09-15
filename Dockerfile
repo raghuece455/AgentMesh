@@ -13,7 +13,7 @@ WORKDIR /app
 COPY . /app
 COPY --from=dashboard-build /app/dashboard/dist /app/dashboard/dist
 
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e ".[otlp,postgres]"
 
 EXPOSE 8787
 CMD ["agentmesh", "dashboard", "--host", "0.0.0.0", "--port", "8787"]

@@ -50,31 +50,55 @@ budget = BudgetLimiter(
 
 ---
 
-## Overriding the Pricing Table
+## Pricing Rules
 
-AgentMesh ships with built-in pricing for common models. Override it for custom deployments or new model versions with `AGENTMESH_PRICING_JSON`:
+Prices are USD per **million** tokens and distinguish uncached input, cache reads, cache writes,
+and output. Token counts follow the OpenTelemetry GenAI conventions: input tokens include cached
+tokens, output tokens include reasoning tokens.
+
+```
+cost = (input - cache_read - cache_write) x input_rate
+     + cache_read  x cache_read_rate
+     + cache_write x cache_write_rate
+     + output      x output_rate
+```
+
+A model's price is resolved in this order:
+
+1. **Overrides** from `AGENTMESH_PRICING_JSON`
+2. **Local providers** (Ollama, vLLM, LM Studio, llama.cpp, mock): always `local/free`
+3. **Synced community prices** from `agentmesh pricing sync` (`.agentmesh/pricing.json` or `AGENTMESH_PRICING_FILE`)
+4. **Built-in table**: current Claude models (including Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5 and prompt-cache rates), Gemini 2.5, and common OpenAI models
+
+Model names are normalized before lookup, so dated snapshots and cloud-specific IDs resolve to the
+same rule: `claude-sonnet-4-5-20250929`, `us.anthropic.claude-sonnet-4-5-20250929-v1:0` and
+`claude-sonnet-4-5@20250929` all match `claude-sonnet-4-5`; `gpt-4o-2024-08-06` matches `gpt-4o`.
+
+Built-in prices are list prices. Batch discounts, data-residency multipliers, regional cloud
+endpoints and negotiated discounts are not applied, which is why the status is `estimated`.
 
 ```bash
-export AGENTMESH_PRICING_JSON='{"my-custom-model": {"prompt": 0.002, "completion": 0.006}}'
+agentmesh pricing show claude-sonnet-5          # which rule applies, and why
+agentmesh pricing sync                          # download the LiteLLM community price list
+agentmesh pricing list
 ```
 
-Units are USD per 1,000 tokens.
+### Overriding prices
 
-Or point to a JSON file:
+`AGENTMESH_PRICING_JSON` takes inline JSON or a path to a JSON file:
 
 ```bash
-export AGENTMESH_PRICING_JSON=/path/to/pricing.json
+export AGENTMESH_PRICING_JSON='[
+  {"provider": "*", "model": "my-finetune", "input_per_mtok": 3.0, "output_per_mtok": 12.0, "cache_read_per_mtok": 0.3},
+  {"provider": "openai", "model": "gpt-4o*", "input_per_mtok": 2.0, "output_per_mtok": 8.0, "status": "exact", "notes": "enterprise contract"}
+]'
 ```
 
-Format of the JSON file:
+`model` accepts glob patterns and `provider` accepts `*`. The shorthand
+`{"my-model": {"prompt": 0.002, "completion": 0.006}}` (USD per 1K tokens) is still accepted.
 
-```json
-{
-  "gpt-4o": {"prompt": 0.005, "completion": 0.015},
-  "gpt-4o-mini": {"prompt": 0.00015, "completion": 0.0006},
-  "claude-3-5-sonnet-20241022": {"prompt": 0.003, "completion": 0.015}
-}
-```
+If your instrumentation already knows the exact cost, send it as the `agentmesh.cost_usd` span
+attribute (or `span.set_usage(..., cost_usd=...)` in the SDK) and it is recorded with status `exact`.
 
 ---
 

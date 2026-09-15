@@ -1,13 +1,17 @@
 import {
+  BellRing,
   Brain,
   ChevronRight,
   CircleDollarSign,
   ClipboardCheck,
   Code2,
   Database,
+  FlaskConical,
   GitBranch,
   LayoutDashboard,
+  MessagesSquare,
   Moon,
+  Plug,
   RotateCcw,
   Route,
   Settings,
@@ -21,6 +25,9 @@ import type { Section } from '../../appTypes'
 export const navItems: Array<{ id: Section; label: string; icon: ReactNode }> = [
   { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="size-4" /> },
   { id: 'traces', label: 'Traces', icon: <Route className="size-4" /> },
+  { id: 'sessions', label: 'Sessions', icon: <MessagesSquare className="size-4" /> },
+  { id: 'datasets', label: 'Datasets & Evals', icon: <FlaskConical className="size-4" /> },
+  { id: 'alerts', label: 'Alerts', icon: <BellRing className="size-4" /> },
   { id: 'workflows', label: 'Workflows', icon: <GitBranch className="size-4" /> },
   { id: 'agents', label: 'Agents', icon: <Brain className="size-4" /> },
   { id: 'models', label: 'Models', icon: <Zap className="size-4" /> },
@@ -31,6 +38,7 @@ export const navItems: Array<{ id: Section; label: string; icon: ReactNode }> = 
   { id: 'evaluations', label: 'Evaluations', icon: <ClipboardCheck className="size-4" /> },
   { id: 'approvals', label: 'Approvals', icon: <UserCheck className="size-4" /> },
   { id: 'replay', label: 'Replay', icon: <RotateCcw className="size-4" /> },
+  { id: 'connect', label: 'Connect', icon: <Plug className="size-4" /> },
   { id: 'settings', label: 'Settings', icon: <Settings className="size-4" /> },
 ]
 

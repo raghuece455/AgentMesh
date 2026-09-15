@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from threading import Lock
 
+from agentmesh.analysis import trace_insights
 from agentmesh.costs import CostTracker
 from agentmesh.debug import FailedRunDiagnosis, ReplayEngine, TimeTravelDebugger
 from agentmesh.evaluation import RunComparator
@@ -55,6 +56,8 @@ class TraceService:
             "checkpoints": self.checkpoints(trace_id),
             "costs": self.costs(trace_id),
             "diagnosis": diagnosis,
+            "scores": self.store.list_scores(trace_id=trace_id) if hasattr(self.store, "list_scores") else [],
+            "insights": trace_insights(self.store, trace_id) if trace is not None else None,
         }
 
     def spans(self, trace_id: str) -> list[JsonObject]:

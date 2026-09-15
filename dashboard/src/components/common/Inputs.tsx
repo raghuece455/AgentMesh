@@ -34,3 +34,12 @@ export function FilterSelect({
 export function getFilterValue(filters: JsonRecord, key: string): string {
   return stringValue(filters[key])
 }
+
+export function TextField({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string; type?: string }) {
+  return (
+    <label className="block min-w-0">
+      <span className="text-xs/5 font-medium text-white/56">{label}</span>
+      <input type={type} autoComplete="off" className="mt-1 h-9 w-full rounded-2xl border border-white/14 bg-slate-950/32 px-3 text-sm/6 text-white outline-hidden placeholder:text-white/35 focus:border-sky-200/50" value={value} placeholder={placeholder} onChange={event => onChange(event.target.value)} />
+    </label>
+  )
+}

@@ -1,35 +1,42 @@
-# OpenTelemetry Export
+# OpenTelemetry
 
-AgentMesh `v0.3.0-alpha` exports traces in an OpenTelemetry-compatible JSON format. Every span, event, and attribute is mapped to the OTEL schema so traces can be imported into Jaeger, Grafana Tempo, or any OTEL-compatible backend.
+AgentMesh speaks OpenTelemetry in both directions:
 
-> **Note:** This is a file/API export format. Native OTLP collector push (streaming spans directly to a collector) is planned for a future release.
+| Direction | What | Where |
+|---|---|---|
+| **In** | Receive OTLP/HTTP traces from any framework (`POST /v1/traces`) and map the GenAI semantic conventions to traces, model calls, tools, sessions, and scores | [integrations.md](integrations.md) |
+| **Out (files/API)** | Export any stored trace as OTLP-shaped JSON for Jaeger, Grafana Tempo, or another backend | this page |
+| **Out (live)** | Mirror AgentMesh *runtime* events to an OTLP collector while a workflow runs | this page |
 
 ---
 
-## Exporting via the CLI
+## Ingesting OpenTelemetry Traces
+
+Start the dashboard and point an exporter at it:
 
 ```bash
-# Export a single trace as OTEL JSON
-agentmesh traces export <trace_id> --format otel-json --out trace.otel.json
+agentmesh dashboard --port 8787
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://127.0.0.1:8787"
 ```
 
+Framework recipes, the attribute mapping, authentication, and privacy settings are in [integrations.md](integrations.md).
+
 ---
 
-## Exporting via the API
+## Exporting a Trace as OTLP JSON
 
 ```bash
-# Query parameter form
-curl "http://127.0.0.1:8787/api/traces/<trace_id>/export?format=otel-json"
+# CLI
+agentmesh traces export <trace_id> --format otel-json --out trace.otel.json
 
-# Dedicated OTEL endpoint
+# API
+curl "http://127.0.0.1:8787/api/traces/<trace_id>/export?format=otel-json"
 curl "http://127.0.0.1:8787/api/traces/<trace_id>/export/otel-json"
 ```
 
----
+The export is an `ExportTraceServiceRequest` in OTLP/JSON form. To move a trace between AgentMesh databases without losing model, cost, or checkpoint detail, use the native format instead: `agentmesh export <trace_id> --out trace.json` and `agentmesh import trace.json`.
 
-## JSON Shape
-
-The exported file follows the OTEL trace JSON format:
+### Shape
 
 ```json
 {
@@ -38,24 +45,26 @@ The exported file follows the OTEL trace JSON format:
       "resource": {
         "attributes": [
           {"key": "service.name", "value": {"stringValue": "agentmesh"}},
-          {"key": "agentmesh.version", "value": {"stringValue": "0.3.0-alpha"}}
+          {"key": "service.version", "value": {"stringValue": "0.4.0"}},
+          {"key": "agentmesh.trace_id", "value": {"stringValue": "trace_7e5c1f62f7c5f239"}},
+          {"key": "agentmesh.environment", "value": {"stringValue": "local"}}
         ]
       },
       "scopeSpans": [
         {
-          "scope": {"name": "agentmesh"},
+          "scope": {"name": "agentmesh.otel_export", "version": "0.4.0"},
           "spans": [
             {
-              "traceId": "...",
-              "spanId": "...",
-              "parentSpanId": "...",
-              "name": "agent.run",
-              "kind": 1,
-              "startTimeUnixNano": "1714500000000000000",
-              "endTimeUnixNano": "1714500001500000000",
+              "traceId": "5b8aa5a2d2c872e8321cf37308d69df2",
+              "spanId": "051581bf3cb55c13",
+              "parentSpanId": "5fb397be34d26b51",
+              "name": "model.response",
+              "kind": "SPAN_KIND_CLIENT",
+              "startTimeUnixNano": 1757800000000000000,
+              "endTimeUnixNano": 1757800001260000000,
               "attributes": [...],
               "events": [...],
-              "status": {"code": 1}
+              "status": {"code": "STATUS_CODE_OK"}
             }
           ]
         }
@@ -65,83 +74,61 @@ The exported file follows the OTEL trace JSON format:
 }
 ```
 
----
+AgentMesh trace and span IDs are hashed to the 32/16 hex characters OpenTelemetry requires, so the same trace always exports with the same IDs. Model and tool spans use `SPAN_KIND_CLIENT`; everything else is `SPAN_KIND_INTERNAL`. Failed spans get `STATUS_CODE_ERROR` with the error message.
 
-## Top-Level Keys
-
-| Key | Description |
-|---|---|
-| `resourceSpans` | Array of resource groups (one per service) |
-| `scopeSpans` | Array of instrumentation scopes |
-| `spans` | Array of individual spans |
-| `traceId` | Unique trace identifier |
-| `spanId` | Unique span identifier |
-| `parentSpanId` | Parent span (absent for root spans) |
-| `name` | Span name (e.g. `agent.run`, `model.call`, `tool.call`) |
-| `kind` | OTEL span kind (1=Internal, 3=Client, 4=Consumer) |
-| `startTimeUnixNano` | Start timestamp in nanoseconds |
-| `endTimeUnixNano` | End timestamp in nanoseconds |
-| `attributes` | Key-value metadata (see below) |
-| `events` | Timed events attached to the span |
-| `status` | `{"code": 1}` = OK, `{"code": 2}` = Error |
-
----
-
-## AgentMesh Attributes
-
-All AgentMesh-specific fields are emitted as attributes with the `agentmesh.*` prefix:
+### Span Attributes
 
 | Attribute | Description |
 |---|---|
-| `agentmesh.workflow.name` | Workflow identifier |
-| `agentmesh.workflow.mode` | `sequential`, `parallel`, `hierarchical`, `event_driven` |
-| `agentmesh.agent.name` | Agent identifier |
-| `agentmesh.agent.role` | Agent role |
-| `agentmesh.task.id` | Step ID |
-| `agentmesh.model.provider` | Provider name (e.g. `openai`) |
-| `agentmesh.model.name` | Model name (e.g. `gpt-4o-mini`) |
-| `agentmesh.model.prompt_tokens` | Input token count |
-| `agentmesh.model.completion_tokens` | Output token count |
-| `agentmesh.model.cost_usd` | Cost in USD |
-| `agentmesh.tool.name` | Tool identifier |
-| `agentmesh.tool.permission` | Permission level |
-| `agentmesh.tool.requires_approval` | `true` or `false` |
-| `agentmesh.retry.attempt` | Retry attempt number |
-| `agentmesh.error.type` | Error class name |
-| `agentmesh.environment` | `development`, `production` |
+| `agentmesh.trace_id`, `agentmesh.run_id` | Original AgentMesh IDs |
+| `agentmesh.workflow_id`, `agentmesh.workflow_name` | Workflow (or trace) identity |
+| `agentmesh.agent_id`, `agentmesh.agent_name` | Agent that produced the span |
+| `agentmesh.task_id`, `agentmesh.task_name` | Task or step |
+| `agentmesh.event_type` | e.g. `model.response`, `tool.finished`, `task.failed` |
+| `agentmesh.provider`, `agentmesh.model` | Model provider and model |
+| `agentmesh.prompt_tokens`, `agentmesh.completion_tokens`, `agentmesh.total_tokens` | Token usage |
+| `agentmesh.estimated_cost`, `agentmesh.cost_status` | Cost in USD and how it was derived (`exact`, `estimated`, `local/free`, `unknown`) |
+| `agentmesh.tool_name` | Tool called |
+| `agentmesh.retry_count` | Retries before this span |
+| `agentmesh.error_type` | Error class when the span failed |
+| `agentmesh.environment`, `agentmesh.is_demo` | Environment label and demo flag |
+
+### Span Events
+
+Each span carries its recorded events (`agentmesh.event_id`, `agentmesh.actor`, `agentmesh.payload`) plus the related records as named events: `model.call`, `tool.call`, `memory.operation`, `rag.retrieval`, and `approval.request`.
 
 ---
 
-## Events in Spans
+## Mirroring Runtime Events to a Collector
 
-Model calls, tool calls, memory operations, RAG retrievals, approvals, retries, and errors are attached as OTEL events within their parent span:
+Workflows built with the AgentMesh runtime can also emit OpenTelemetry spans live, alongside the local database. Install the `otel` extra and attach a bridge to the recorder:
 
-```json
-{
-  "name": "model.response",
-  "timeUnixNano": "1714500001000000000",
-  "attributes": [
-    {"key": "output_text", "value": {"stringValue": "Research complete."}},
-    {"key": "prompt_tokens", "value": {"intValue": 412}},
-    {"key": "completion_tokens", "value": {"intValue": 87}},
-    {"key": "cost_usd", "value": {"doubleValue": 0.000114}}
-  ]
-}
+```bash
+pip install "agentmesh-ai[otel]"
 ```
+
+```python
+from agentmesh import SQLiteStore, TraceRecorder, Workflow, configure_opentelemetry
+
+store = SQLiteStore()
+bridge = configure_opentelemetry("research-service", otlp_endpoint="http://otel-collector:4318/v1/traces")
+workflow = Workflow("research", store=store, recorder=TraceRecorder(store, otel=bridge))
+```
+
+Each runtime event (`workflow.started`, `model.response`, `tool.finished`, ...) becomes a span with `agentmesh.*` attributes and its payload fields. These are event-level spans rather than a nested, timed span tree; for full hierarchies in another backend, export stored traces as shown above.
 
 ---
 
 ## Secret Redaction
 
-All API keys and secret values are redacted before the OTEL JSON is returned or written to disk. Redacted values appear as `[REDACTED]`.
+API keys, tokens, passwords, private keys, and credentials in URLs are redacted before a trace is stored, exported, or mirrored. Redacted values appear as `[REDACTED]`.
 
 ---
 
-## Planned Features
+## Not Yet Supported
 
 | Feature | Status |
 |---|---|
-| Native OTLP collector push (streaming) | Planned — v0.4 |
-| Configurable resource attributes | Planned |
-| Batch export of multiple traces | Planned |
-| Integration tests against a live collector | Planned |
+| gRPC OTLP receiver (port 4317) | Use an OpenTelemetry Collector with an `otlphttp` exporter in front of AgentMesh |
+| OTLP logs and metrics ingestion | Planned |
+| Nested, timed span export while a runtime workflow is running | Planned |

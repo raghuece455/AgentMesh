@@ -12,11 +12,12 @@ pip install -e ".[dotenv]"   # enables .env auto-loading
 
 | Variable | Default | Description |
 |---|---|---|
-| `AGENTMESH_DB_URL` | `.agentmesh/agentmesh.db` | SQLite file path or PostgreSQL DSN (`postgresql://user:pass@host/db`) |
+| `AGENTMESH_DB_URL` | `.agentmesh/agentmesh.db` | SQLite file path (or `sqlite:///path`) or PostgreSQL DSN (`postgresql://user:pass@host/db`) |
 | `AGENTMESH_HOST` | `127.0.0.1` | Dashboard bind host |
 | `AGENTMESH_PORT` | `8787` | Dashboard port |
 | `AGENTMESH_AUTH_MODE` | `none` | `none` for open local access; `api_key` to require a bearer token |
 | `AGENTMESH_API_KEY` | _(unset)_ | Required when `AGENTMESH_AUTH_MODE=api_key` |
+| `AGENTMESH_DASHBOARD_DIR` | _(unset)_ | Serve a dashboard build from this directory (must contain `index.html`). By default a source checkout's `dashboard/dist` is used, then the copy bundled in the wheel. |
 
 ---
 
@@ -37,16 +38,46 @@ pip install -e ".[dotenv]"   # enables .env auto-loading
 
 | Variable | Default | Description |
 |---|---|---|
-| `AGENTMESH_PRICING_JSON` | _(unset)_ | JSON string or path to a JSON file overriding built-in model pricing |
+| `AGENTMESH_PRICING_JSON` | _(unset)_ | Price overrides: inline JSON or a path to a JSON file (see [cost-tracking.md](cost-tracking.md)) |
+| `AGENTMESH_PRICING_FILE` | `.agentmesh/pricing.json` | Where `agentmesh pricing sync` writes community prices, and where they are read from |
 
-Pricing JSON format:
+Override format (USD per million tokens):
 ```json
-{
-  "gpt-4o-mini": {"prompt": 0.00015, "completion": 0.0006},
-  "claude-3-5-sonnet-20241022": {"prompt": 0.003, "completion": 0.015}
-}
+[{"provider": "*", "model": "my-finetune", "input_per_mtok": 3.0, "output_per_mtok": 12.0, "cache_read_per_mtok": 0.3}]
 ```
-Units: USD per 1,000 tokens.
+
+---
+
+## Ingestion and Privacy (server)
+
+| Variable | Default | Description |
+|---|---|---|
+| `AGENTMESH_CAPTURE_CONTENT` | `true` | `false` drops prompts, completions, tool arguments/results and document text at ingest; usage, cost, timing and errors are kept |
+| `AGENTMESH_MAX_CONTENT_CHARS` | `100000` | Maximum stored characters per content field |
+| `AGENTMESH_MAX_OTLP_BYTES` | `33554432` (32 MiB) | Largest `/v1/traces` request body, before and after gzip/deflate decompression; larger requests get `413` |
+
+## Tracing SDK (your application)
+
+| Variable | Default | Description |
+|---|---|---|
+| `AGENTMESH_ENDPOINT` | _(unset)_ | Send spans to a remote AgentMesh server instead of a local database |
+| `AGENTMESH_API_KEY` | _(unset)_ | Bearer token for that server |
+| `AGENTMESH_SERVICE_NAME` | `agentmesh-app` | Service name on every trace (falls back to `OTEL_SERVICE_NAME`) |
+| `AGENTMESH_ENVIRONMENT` | _(unset)_ | Environment label, e.g. `prod` |
+| `AGENTMESH_TRACING_ENABLED` | `true` | `false` makes all SDK spans no-ops |
+
+See [sdk.md](sdk.md) and [integrations.md](integrations.md).
+
+---
+
+## Alerts
+
+| Variable | Default | Description |
+|---|---|---|
+| `AGENTMESH_ALERT_INTERVAL_SECONDS` | `60` | How often the server evaluates alert rules; `0` turns the scheduler off (use `agentmesh alerts check` instead) |
+| `AGENTMESH_PUBLIC_URL` | _(unset)_ | The dashboard's external URL, e.g. `https://agentmesh.example.com`; alert notifications then link to the offending traces |
+
+See [alerts.md](alerts.md).
 
 ---
 
@@ -55,7 +86,7 @@ Units: USD per 1,000 tokens.
 | Variable | Default | Description |
 |---|---|---|
 | `AGENTMESH_OTEL_ENABLED` | `false` | Enable OpenTelemetry setup in user code |
-| `AGENTMESH_OTEL_ENDPOINT` | _(unset)_ | OTLP collector endpoint (planned — not yet active in v0.3.0) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | _(unset)_ | Set this **in your agent app** to `http://<agentmesh-host>:8787` to export OpenTelemetry traces into AgentMesh |
 
 ---
 
@@ -95,17 +126,26 @@ AGENTMESH_PRICING_JSON=./pricing.json
 
 ## PostgreSQL
 
-Switch from SQLite to PostgreSQL by changing `AGENTMESH_DB_URL`:
+Switch from SQLite to PostgreSQL (14 or newer) by changing `AGENTMESH_DB_URL`:
 
 ```dotenv
 AGENTMESH_DB_URL=postgresql://agentmesh:secret@localhost:5432/agentmesh
 ```
 
-Install the PostgreSQL adapter:
+Install the driver:
 
 ```bash
-pip install -e ".[postgres]"
+pip install "agentmesh-ai[postgres]"
 ```
+
+Every feature works on PostgreSQL: OTLP and SDK ingestion, sessions, scores, insights, datasets, experiments, alerts, the runtime, replay, and the MCP server. Tables are created on first connect. Point the dashboard, the CLI, the Python SDK (`agentmesh.init(db_path="postgresql://...")`), and `agentmesh mcp` at the same DSN.
+
+Notes:
+
+- AgentMesh does not use server-side prepared statements, so it works behind transaction-pooling proxies such as PgBouncer and the Supabase and Neon poolers.
+- Each store holds one connection; the dashboard serializes database access within a process. Run more server replicas for more throughput, with the alert scheduler enabled on only one of them.
+- Databases created by the pre-0.4 PostgreSQL adapter are upgraded in place: `jsonb` columns in AgentMesh's own tables become `text` and the foreign keys on `events` and `checkpoints` are dropped (SQLite never enforced them). Other tables in the database are never modified.
+- Switching databases does not copy existing traces; start the new database fresh, or re-send traces to it.
 
 See [production_stack.md](production_stack.md) for a full PostgreSQL + Redis + NATS setup.
 

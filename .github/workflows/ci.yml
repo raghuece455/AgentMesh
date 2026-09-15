@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,6 +28,110 @@ jobs:
           python -m agentmesh.cli --db .agentmesh/ci.db demo seed --reset
           python -m agentmesh.cli --db .agentmesh/ci.db validate traces --json
           python -m agentmesh.cli --db .agentmesh/ci.db traces list --limit 3
+          python -m agentmesh.cli --db .agentmesh/ci.db sessions list
+      - name: SDK example
+        run: AGENTMESH_DB_URL=.agentmesh/sdk-example.db python examples/sdk_quickstart.py
+      - name: Datasets and experiments example
+        run: python examples/datasets_experiments.py
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      AGENTMESH_TEST_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev,postgres]"
+      - name: Test on SQLite and PostgreSQL
+        run: pytest
+      - name: Demo seed, alerts, and experiments on PostgreSQL
+        run: |
+          python -m agentmesh.cli --db "$AGENTMESH_TEST_POSTGRES_URL" demo seed --reset
+          python -m agentmesh.cli --db "$AGENTMESH_TEST_POSTGRES_URL" experiments list
+          python -m agentmesh.cli --db "$AGENTMESH_TEST_POSTGRES_URL" alerts check --no-deliver
+
+  typescript-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Build and test
+        working-directory: sdks/typescript
+        run: |
+          npm ci
+          npm test
+      - name: Send traces and an experiment to a live AgentMesh server
+        run: |
+          python -m pip install -e .
+          python -m agentmesh.cli --db .agentmesh/ts.db datasets create capitals
+          python -m agentmesh.cli --db .agentmesh/ts.db datasets add capitals --input '{"country": "France"}' --expected Paris
+          python -m agentmesh.cli --db .agentmesh/ts.db datasets add capitals --input '{"country": "Japan"}' --expected Tokyo
+          python -m agentmesh.cli --db .agentmesh/ts.db dashboard --host 127.0.0.1 --port 8797 &
+          sleep 5
+          export AGENTMESH_ENDPOINT=http://127.0.0.1:8797
+          (cd sdks/typescript && node examples/quickstart.mjs && node examples/experiment.mjs capitals ts-ci)
+          curl -sf http://127.0.0.1:8797/api/sessions/ts-chat-1 | grep -q '"trace_count": *2'
+          curl -sf "http://127.0.0.1:8797/api/experiments?dataset=capitals" | grep -q '"ts-ci"'
+          echo "TypeScript SDK traces and experiment stored"
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Build dashboard, sdist, and wheel
+        env:
+          AGENTMESH_REQUIRE_DASHBOARD: "1"
+        run: |
+          (cd dashboard && npm ci && npm run build)
+          python -m pip install build
+          python -m build
+      - name: Install the wheel in a clean venv and serve the dashboard
+        run: |
+          python -m venv /tmp/wheel-venv
+          /tmp/wheel-venv/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/wheel-venv/bin/agentmesh --db /tmp/wheel.db demo seed --reset
+          /tmp/wheel-venv/bin/agentmesh --db /tmp/wheel.db dashboard --host 127.0.0.1 --port 8796 &
+          sleep 5
+          curl -sf http://127.0.0.1:8796/ -o index.html
+          grep -q 'id="root"' index.html
+          asset=$(grep -o '/assets/index-[^"]*\.js' index.html | head -n 1)
+          curl -sf "http://127.0.0.1:8796${asset}" > /dev/null
+          curl -sf http://127.0.0.1:8796/vision-space.svg > /dev/null
+          echo "Wheel serves the React dashboard"
 
   dashboard:
     runs-on: ubuntu-latest
@@ -60,4 +164,12 @@ jobs:
           curl -sf http://127.0.0.1:8795/api/agents/status > /dev/null
           curl -sf http://127.0.0.1:8795/api/approvals > /dev/null
           curl -sf http://127.0.0.1:8795/api/workflows/active > /dev/null
+          curl -sf http://127.0.0.1:8795/api/sessions > /dev/null
+          curl -sf http://127.0.0.1:8795/api/integrations > /dev/null
+          curl -sf http://127.0.0.1:8795/api/datasets > /dev/null
+          curl -sf http://127.0.0.1:8795/api/experiments > /dev/null
+          curl -sf http://127.0.0.1:8795/api/alerts/rules > /dev/null
+          curl -sf http://127.0.0.1:8795/api/alerts/events > /dev/null
+          curl -sf http://127.0.0.1:8795/vision-space.svg > /dev/null
+          curl -sf -X POST -H "Content-Type: application/json" -d '{"resourceSpans": []}' http://127.0.0.1:8795/v1/traces > /dev/null
           echo "All dashboard endpoints OK"

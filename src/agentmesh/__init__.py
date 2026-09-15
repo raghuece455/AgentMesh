@@ -33,11 +33,74 @@ from agentmesh.task import Task, ToolCallRequest
 from agentmesh.tools import MCPToolProxy, PermissionLevel, Tool, ToolRegistry, tool
 from agentmesh.tracing import TraceRecorder
 from agentmesh.workflow import Workflow, WorkflowMode, WorkflowResult, WorkflowStep
+from agentmesh.analysis import trace_insights
+from agentmesh.evaluators import (
+    Contains,
+    EvaluationResult,
+    ExactMatch,
+    JSONValid,
+    LLMJudge,
+    RegexMatch,
+    Similarity,
+    evaluator,
+)
+from agentmesh.experiments import ExperimentResult, arun_experiment, evaluate_traces, run_experiment
+from agentmesh.ingest import SpanData
+from agentmesh.integrations import instrument_anthropic, instrument_openai, uninstrument_anthropic, uninstrument_openai
+from agentmesh.sdk import (
+    InMemoryExporter,
+    Span,
+    flush,
+    get_client,
+    get_current_span,
+    get_current_trace_id,
+    init,
+    observe,
+    score,
+    shutdown,
+    span,
+    trace,
+    update_current_trace,
+)
 
-__version__ = "0.3.0-alpha"
+__version__ = "0.4.0"
 
 __all__ = [
     "__version__",
+    # Tracing SDK (works with any framework)
+    "InMemoryExporter",
+    "Span",
+    "SpanData",
+    "flush",
+    "get_client",
+    "get_current_span",
+    "get_current_trace_id",
+    "init",
+    "instrument_anthropic",
+    "instrument_openai",
+    "observe",
+    "score",
+    "shutdown",
+    "span",
+    "trace",
+    "trace_insights",
+    "uninstrument_anthropic",
+    "uninstrument_openai",
+    "update_current_trace",
+    # Datasets, experiments, and evaluators
+    "Contains",
+    "EvaluationResult",
+    "ExactMatch",
+    "ExperimentResult",
+    "JSONValid",
+    "LLMJudge",
+    "RegexMatch",
+    "Similarity",
+    "arun_experiment",
+    "evaluate_traces",
+    "evaluator",
+    "run_experiment",
+    # Runtime
     "Agent",
     "AgentMessage",
     "AgentResult",

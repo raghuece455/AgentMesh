@@ -21,8 +21,11 @@ This document explains AgentMesh from the ground up: the problem it solves, how 
 13. [Dashboard Request-Response Flow](#13-dashboard-request-response-flow)
 14. [Storage and Data Model](#14-storage-and-data-model)
 15. [Real-World Use Cases](#15-real-world-use-cases)
-16. [What Makes AgentMesh Different](#16-what-makes-agentmesh-different)
-17. [Glossary](#17-glossary)
+16. [Observing Agents Built with Any Framework](#16-observing-agents-built-with-any-framework)
+    - [Testing changes with datasets and experiments](#testing-changes-with-datasets-and-experiments)
+    - [Alerts](#alerts)
+17. [What Makes AgentMesh Different](#17-what-makes-agentmesh-different)
+18. [Glossary](#18-glossary)
 
 ---
 
@@ -61,10 +64,10 @@ Input ──► [Black Box] ──► Output     Input ──► [Every step rec
 
 ## 2. What is AgentMesh? (Simple Explanation)
 
-**AgentMesh is a framework that:**
-1. Lets you build AI agent systems (multiple AI assistants working together)
-2. Records everything that happens during each run
-3. Lets you inspect, debug, replay, and measure those runs from a dashboard
+**AgentMesh is open-source observability for AI agents. It:**
+1. Records everything that happens during each agent run — model calls, tool calls, agent steps, retrieval, costs, errors
+2. Works with agents built on **any framework** (through OpenTelemetry, a Python SDK, or OpenAI/Anthropic client instrumentation) and with its own built-in multi-agent runtime
+3. Lets you inspect, debug, replay, and measure those runs from a local dashboard, the CLI, or your coding agent over MCP
 
 Think of it like **a flight data recorder (black box) + air traffic control tower** for your AI agents.
 
@@ -72,17 +75,16 @@ Think of it like **a flight data recorder (black box) + air traffic control towe
 - The **air traffic control tower** (dashboard) shows you what's happening in real time and lets you investigate past flights.
 
 ```
-Your AI Agents
-      │
-      │ (every action recorded automatically)
-      ▼
- AgentMesh Runtime ──────────────────────────────────────┐
-      │                                                   │
-      │ writes                                            │
-      ▼                                                   │
-  SQLite DB                                              Dashboard
- (trace store) ◄──────────────────────────────────────── (read & inspect)
+ Agents on any framework                AgentMesh runtime
+ (OpenTelemetry / SDK / clients)        (Workflow, Agent, Tool)
+          │                                      │
+          │ OTLP  POST /v1/traces                │ every event recorded
+          ▼                                      ▼
+   Semantic mapping ──────────────────►  SQLite trace store  ◄──── Dashboard · CLI · MCP server
+   (GenAI conventions → traces, costs)                              (inspect, diagnose, replay)
 ```
+
+Section 16 walks through the any-framework path; sections 5–12 cover the built-in runtime.
 
 ---
 
@@ -159,7 +161,7 @@ flowchart TD
 
     subgraph STORAGE["💾 Storage Layer"]
         SQLITE["SQLiteStore\n(default local DB)"]
-        POSTGRES["PostgreSQLStore\n(production)"]
+        POSTGRES["PostgreSQLStore\n(same queries, shared team server)"]
     end
 
     subgraph DASH["🖥️ Dashboard"]
@@ -885,48 +887,133 @@ flowchart LR
 
 ---
 
-## 16. What Makes AgentMesh Different
+## 16. Observing Agents Built with Any Framework
 
-Most tools either **orchestrate** AI agents OR **observe** them. AgentMesh does both in one package.
+Most teams already have an agent — built with the OpenAI Agents SDK, Pydantic AI, LangGraph, CrewAI, the Vercel AI SDK, or plain Python. They don't need to rewrite it. Almost all of these frameworks can emit **OpenTelemetry spans that follow the GenAI semantic conventions** (`gen_ai.operation.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, ...). AgentMesh receives those spans and turns them into the same traces the built-in runtime produces.
+
+```mermaid
+sequenceDiagram
+    participant App as Your agent
+    participant Exp as OTel exporter or AgentMesh SDK
+    participant RX as POST /v1/traces
+    participant Map as Semantic mapping
+    participant DB as SQLite or PostgreSQL
+    participant Out as Dashboard / CLI / MCP
+
+    App->>Exp: model calls, tool calls, agent steps
+    Exp->>RX: OTLP/HTTP batch (JSON or protobuf)
+    RX->>Map: decode and size-check spans
+    Map->>Map: classify each span (chat, execute_tool, invoke_agent, retrieval)
+    Map->>Map: tokens and cost, session and user, errors, scores
+    Map->>DB: traces, spans, model calls, tool calls, sessions, scores
+    Out->>DB: query
+    Out-->>App: insights: first failure, loops, context growth, cost hotspots
+```
+
+What happens along the way:
+
+1. **Three ways in.** An OpenTelemetry exporter pointed at `/v1/traces`; the AgentMesh Python SDK (`@agentmesh.observe`, `agentmesh.trace(...)`), which writes locally or sends OTLP, or the TypeScript SDK (`agentmesh-sdk`), which sends OTLP; or `instrument_openai()` / `instrument_anthropic()` (in either SDK), which record every client call.
+2. **Classification.** Each span becomes a model call, tool call, agent step, retrieval, memory operation, or generic step based on its attributes. Aggregate wrapper spans are not counted twice.
+3. **Enrichment.** Token usage (including cache reads/writes and reasoning tokens) is priced per model; child spans inherit the nearest agent; session, user, and tags attach to the trace.
+4. **Out-of-order delivery.** Exporters send children before parents. The trace starts as `running` and is finalized when its root arrives — or its top-most span, if the true parent lives in another service. Re-sending a span is harmless.
+5. **Analysis.** `trace_insights` finds the first failing span and its path, identical tool calls, repeated prompts, context growth, cache hit rate, and self-time/cost hotspots — shown in the dashboard and available to coding agents through `agentmesh mcp`.
+
+```python
+# Plain Python, no framework
+import agentmesh
+
+agentmesh.init(service_name="support-bot")
+agentmesh.instrument_anthropic()
+
+@agentmesh.observe(kind="tool")
+def lookup_order(order_id: str) -> dict: ...
+
+with agentmesh.trace("support-turn", session_id="chat-42", user_id="u-7"):
+    ...
+```
+
+See [docs/integrations.md](docs/integrations.md), [docs/sdk.md](docs/sdk.md), [docs/typescript-sdk.md](docs/typescript-sdk.md), and [docs/mcp.md](docs/mcp.md).
+
+### Testing changes with datasets and experiments
+
+Observability tells you what happened; experiments tell you whether a change will make it better or worse before it reaches users.
 
 ```mermaid
 flowchart LR
-    subgraph OTHERS["Other Tools"]
+    T["Production traces"] -- "Add to dataset" --> D[("Dataset<br/>input + expected")]
+    J["JSONL / by hand"] --> D
+    D --> R1["Experiment: prompt-v1"]
+    D --> R2["Experiment: prompt-v2"]
+    R1 -- "each item = one trace" --> S1["Evaluator scores<br/>ExactMatch, Contains, LLMJudge"]
+    R2 -- "each item = one trace" --> S2["Evaluator scores"]
+    S1 --> C{"Compare item by item"}
+    S2 --> C
+    C --> OUT["Regressed / improved / unchanged<br/>score, cost, latency deltas"]
+    C --> CI["CI gate: --fail-under,<br/>--fail-on-regression"]
+```
+
+1. A **dataset** stores inputs and optional expected outputs. The fastest way to build one is **Add to dataset** on real traces: a good answer becomes a regression test; a bad one becomes a case for the judge.
+2. `run_experiment(dataset, task, evaluators)` calls your task for each item inside a trace, so the experiment's spans, tokens, and cost are recorded like any other run.
+3. **Evaluators** score each output. `LLMJudge` sends the input, the reference, and the output to a model with a rubric and parses `{"score", "reason"}`.
+4. **Comparison** matches items by id across two experiments and classifies each as regressed, improved, or unchanged, so a reviewer reads the three items that got worse instead of re-reading hundreds that did not change.
+
+### Alerts
+
+The server re-evaluates alert rules on a timer against the same tables the dashboard reads: failure rate and count, spend, per-trace cost, p95 latency, and repeated identical tool calls. A rule that crosses its threshold records an alert and posts to Slack, Discord, or a signed webhook; aggregate rules send a reminder after the cooldown and a resolved message when they recover. See [docs/alerts.md](docs/alerts.md).
+
+---
+
+## 17. What Makes AgentMesh Different
+
+```mermaid
+flowchart LR
+    subgraph IN["Bring your own agent"]
         direction TB
-        LC["LangChain\nOrchestrates\nbut limited observability"]
-        LS["LangSmith\nObserves\nbut doesn't orchestrate"]
-        LF["LangFuse\nObserves LLM calls\nbut not full workflows"]
+        OT["OpenTelemetry frameworks"]
+        SDK["Python SDK"]
+        CL["OpenAI / Anthropic clients"]
+        RT["AgentMesh runtime"]
     end
 
-    subgraph AM["AgentMesh"]
+    subgraph AM["AgentMesh (local)"]
         direction TB
-        ORCH["Orchestrates workflows\n(sequential/parallel/hierarchical)"]
-        OBS["Observes everything\n(traces/costs/replay)"]
-        ORCH <--> OBS
+        STORE["Traces · sessions · scores · costs"]
+        INS["Insights + replay"]
+        STORE --> INS
     end
 
-    style AM fill:#1e293b,color:#94a3b8
-    style ORCH fill:#3b82f6,color:#fff
-    style OBS fill:#8b5cf6,color:#fff
+    subgraph USE["Use it from"]
+        direction TB
+        UI["Dashboard"]
+        MCP["Claude Code / Cursor via MCP"]
+        CLI["CLI + REST API"]
+    end
+
+    OT --> STORE
+    SDK --> STORE
+    CL --> STORE
+    RT --> STORE
+    INS --> UI
+    INS --> MCP
+    INS --> CLI
 ```
 
 **Key differentiators:**
 
 | Feature | What it means for you |
 |---|---|
-| **One package for orchestration + observability** | No need to wire two separate systems together |
-| **Local-first** | Your prompts and data never leave your machine by default |
-| **Zero config** | `pip install -e .` + one command and you have a working dashboard |
-| **Deterministic replay** | Re-run without API costs — great for debugging and CI |
-| **Time-travel checkpoints** | Go back to any step, change memory, continue |
-| **Human approval gates** | Any tool can require approval before running |
-| **Budget enforcement** | Hard stop if costs exceed limits — no surprise bills |
-| **Works with any LLM** | OpenAI, Anthropic, Gemini, Ollama, vLLM, Azure, your own |
-| **OpenTelemetry export** | Send traces to Jaeger, Grafana Tempo, Datadog, Honeycomb |
+| **Works with any framework** | Standard OpenTelemetry GenAI conventions in; no rewrite and no vendor SDK lock-in |
+| **Local-first and free** | MIT licensed, SQLite by default, no account; your prompts never leave your machine unless you send them |
+| **Answers, not just logs** | Automatic root cause, loop detection, context growth, and cache/cost hotspots on every trace |
+| **Debug from your coding agent** | The MCP server lets Claude Code or Cursor list, inspect, diagnose, and score traces |
+| **Sessions and feedback** | Multi-turn conversations with per-turn scores from users, evals, or reviewers |
+| **Accurate costs** | Per-million-token prices with prompt-cache rates and a community price sync |
+| **Optional runtime** | Built-in orchestration with deterministic replay, time-travel checkpoints, approval gates, and budgets |
+| **OpenTelemetry out** | Export any trace as OTLP JSON for Jaeger, Grafana Tempo, and other backends |
 
 ---
 
-## 17. Glossary
+## 18. Glossary
 
 | Term | Simple definition |
 |---|---|
@@ -948,6 +1035,12 @@ flowchart LR
 | **Embedding** | A numeric representation of text used for similarity comparisons |
 | **MockModelProvider** | A fake AI model that returns preset answers — used for testing |
 | **OTEL / OpenTelemetry** | An industry standard for traces and metrics that tools like Jaeger and Datadog understand |
+| **OTLP** | The OpenTelemetry wire protocol; AgentMesh receives it at `POST /v1/traces` |
+| **GenAI semantic conventions** | The standard OpenTelemetry attribute names for model calls, agents, and tools (`gen_ai.*`) |
+| **Session** | A group of traces from one conversation, identified by `session_id` / `gen_ai.conversation.id` |
+| **Score** | A number, boolean, or label attached to a trace — user feedback, an eval result, or a reviewer's verdict |
+| **Insight** | An automatic finding on a trace, such as the first failure, a tool-call loop, or context growth |
+| **MCP** | Model Context Protocol — how coding agents like Claude Code call AgentMesh's trace tools |
 | **SQLite** | A local file-based database — AgentMesh's default storage |
 | **Trace ID** | A unique ID for one workflow run — use it to find anything in the dashboard |
 | **Dashboard** | The local web UI that shows traces, costs, tools, memory, and replays |
@@ -961,21 +1054,35 @@ flowchart LR
 ```
 AgentMesh/
 ├── src/agentmesh/
+│   ├── ingest.py          # Span ingestion — GenAI/OpenInference/Vercel attribute mapping into the store
+│   ├── otlp.py            # OTLP/HTTP JSON + protobuf decoding and encoding
+│   ├── sdk.py             # Tracing SDK — init, @observe, trace(), span(), score()
+│   ├── datasets.py        # Datasets, experiment storage, item-by-item comparison
+│   ├── experiments.py     # run_experiment(), evaluate_traces()
+│   ├── evaluators.py      # ExactMatch, Contains, RegexMatch, JSONValid, Similarity, LLMJudge
+│   ├── alerts.py          # Alert rules, scheduler, Slack/Discord/webhook delivery
+│   ├── postgres.py        # PostgreSQLStore — SQLite-dialect translation onto PostgreSQL
+│   ├── integrations/      # OpenAI and Anthropic client auto-instrumentation
+│   ├── analysis.py        # Trace insights — root cause, loops, context growth, hotspots
+│   ├── mcp_server.py      # MCP server (stdio) for coding agents
+│   ├── pricing.py         # Per-model prices, cache rates, pricing sync
 │   ├── agents.py          # Agent class — runs tasks, calls tools and models
 │   ├── workflow.py        # Workflow class — coordinates agents
 │   ├── scheduler.py       # WorkflowScheduler — sequential/parallel/hierarchical execution
-│   ├── providers.py       # 7 model providers (OpenAI, Anthropic, Gemini, Ollama, vLLM, Mock)
+│   ├── providers.py       # Model providers (OpenAI-compatible, Anthropic, Gemini, Ollama, vLLM, Mock)
 │   ├── tools.py           # Tool registry, permissions, approval flow
-│   ├── storage.py         # SQLiteStore — all database reads and writes
-│   ├── observability.py   # TraceRecorder — captures every event
+│   ├── tracing.py         # TraceRecorder — records every runtime event
+│   ├── storage.py         # SQLiteStore — all database reads and writes (PostgreSQLStore inherits it)
+│   ├── observability.py   # Schema, materialized tables, and dashboard queries
 │   ├── reliability.py     # RetryPolicy, BudgetLimiter, CircuitBreaker, RateLimiter
 │   ├── rag.py             # RetrievalEngine, FAISS and SQLite vector stores
 │   ├── debug.py           # ReplayEngine, TimeTravelDebugger, FailedRunDiagnosis
-│   ├── dashboard.py       # FastAPI server — all REST endpoints
+│   ├── dashboard.py       # FastAPI server — REST endpoints and /v1/traces
 │   ├── cli.py             # Command-line interface
 │   └── memory.py          # WorkflowMemory, SQLiteMemoryStore
 ├── dashboard/src/         # React + TypeScript frontend
-├── examples/              # 20 runnable example workflows
+├── sdks/typescript/       # agentmesh-sdk for Node.js (tracing, instrumentation, experiments)
+├── examples/              # 24 runnable examples (runtime workflows, SDK, OpenTelemetry, experiments)
 ├── tests/                 # pytest test suite
 └── docs/                  # Reference documentation
 ```

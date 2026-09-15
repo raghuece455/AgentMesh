@@ -131,6 +131,7 @@ class Agent:
             raise classified
         latency_ms = (time.perf_counter() - started) * 1000
         cached_tokens = _int(response.raw.get("cached_tokens", 0))
+        cache_write_tokens = _int(response.raw.get("cache_write_tokens", 0))
         reasoning_tokens = _int(response.raw.get("reasoning_tokens", 0))
         cost_estimate = estimate_model_cost(
             self.model_provider.name,
@@ -139,6 +140,7 @@ class Agent:
             response.completion_tokens,
             cached_tokens,
             reasoning_tokens,
+            cache_write_tokens,
         )
         cost_usd = response.cost_usd if response.cost_usd > 0 else cost_estimate.cost_usd
         cost_status = str(response.raw.get("cost_status") or ("exact" if response.cost_usd > 0 else cost_estimate.status))

@@ -19,6 +19,7 @@ from agentmesh import (
     tool,
 )
 from agentmesh.dashboard import create_app
+from agentmesh.stores import create_store
 from agentmesh.demo import seed_demo_data
 
 
@@ -54,9 +55,9 @@ async def _run_observed_workflow(store: SQLiteStore):
     return result
 
 
-def test_production_dashboard_endpoints(tmp_path):
-    db_path = tmp_path / "agentmesh.db"
-    store = SQLiteStore(db_path)
+def test_production_dashboard_endpoints(db_url):
+    db_path = db_url
+    store = create_store(db_path)
     result = asyncio.run(_run_observed_workflow(store))
     client = TestClient(create_app(db_path))
 
@@ -98,9 +99,9 @@ def test_api_key_auth_mode_protects_sensitive_endpoints(tmp_path, monkeypatch):
     assert authorized.json()["found"] is True
 
 
-def test_otel_export_maps_span_hierarchy_and_failed_status(tmp_path):
-    db_path = tmp_path / "agentmesh.db"
-    store = SQLiteStore(db_path)
+def test_otel_export_maps_span_hierarchy_and_failed_status(db_url):
+    db_path = db_url
+    store = create_store(db_path)
     result = asyncio.run(_run_observed_workflow(store))
     client = TestClient(create_app(db_path))
 
@@ -280,3 +281,20 @@ def test_cli_validate_json_and_replay_modes(tmp_path):
     assert json.loads(replay.stdout)["mode"] == "deterministic"
     assert live_without_flag.returncode != 0
     assert "--allow-side-effects" in live_without_flag.stderr
+
+
+def test_websocket_events_require_api_key(tmp_path, monkeypatch):
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+
+    db_path = tmp_path / "agentmesh.db"
+    seed_demo_data(db_path)
+    monkeypatch.setenv("AGENTMESH_AUTH_MODE", "api_key")
+    monkeypatch.setenv("AGENTMESH_API_KEY", "test-api-key")
+    client = TestClient(create_app(db_path))
+
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/events") as websocket:
+            websocket.receive_json()
+    with client.websocket_connect("/ws/events", headers={"Authorization": "Bearer test-api-key"}) as websocket:
+        assert websocket.receive_json()["event_type"]

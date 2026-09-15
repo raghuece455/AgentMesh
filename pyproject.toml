@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentmesh-ai"
-version = "0.3.0a2"
-description = "Async multi-agent framework with traceability, observability, dashboarding, and extensibility."
+version = "0.4.0"
+description = "Open-source, self-hosted observability for AI agents: OTLP ingestion, tracing SDK, sessions, cost analytics, datasets and LLM-as-judge experiments, alerts, replay, and an MCP server. SQLite or PostgreSQL."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "AgentMesh Contributors" }]
-keywords = ["agents", "llm", "multi-agent", "observability", "traceability", "rag", "workflow", "opentelemetry", "replay", "cost-tracking"]
+keywords = ["agents", "llm", "multi-agent", "observability", "traceability", "opentelemetry", "genai-semantic-conventions", "otlp", "mcp", "llmops", "replay", "cost-tracking", "evals", "llm-as-judge", "experiments", "alerting", "postgresql"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
@@ -19,6 +19,11 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Framework :: FastAPI",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Debuggers",
+  "Topic :: System :: Monitoring",
   "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
 dependencies = [
@@ -40,6 +45,15 @@ dev = [
   "pytest-asyncio>=0.23.0",
   "ruff>=0.8.0",
   "mypy>=1.13.0",
+  "anthropic>=0.40.0",
+  "openai>=1.60.0",
+  "opentelemetry-proto>=1.26.0",
+  "opentelemetry-sdk>=1.26.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.26.0",
+]
+# Accept OTLP protobuf (the default wire format of the Python/Go/Java OTel exporters).
+otlp = [
+  "opentelemetry-proto>=1.26.0",
 ]
 dotenv = [
   "python-dotenv>=1.0.0",
@@ -69,6 +83,7 @@ production = [
   "opentelemetry-api>=1.26.0",
   "opentelemetry-sdk>=1.26.0",
   "opentelemetry-exporter-otlp-proto-http>=1.26.0",
+  "opentelemetry-proto>=1.26.0",
   "psycopg[binary]>=3.2.0",
   "redis>=5.0.0",
 ]
@@ -79,6 +94,7 @@ all = [
   "opentelemetry-api>=1.26.0",
   "opentelemetry-sdk>=1.26.0",
   "opentelemetry-exporter-otlp-proto-http>=1.26.0",
+  "opentelemetry-proto>=1.26.0",
   "psycopg[binary]>=3.2.0",
   "redis>=5.0.0",
 ]
@@ -89,6 +105,11 @@ dev = [
   "pytest-asyncio>=0.23.0",
   "ruff>=0.8.0",
   "mypy>=1.13.0",
+  "anthropic>=0.40.0",
+  "openai>=1.60.0",
+  "opentelemetry-proto>=1.26.0",
+  "opentelemetry-sdk>=1.26.0",
+  "opentelemetry-exporter-otlp-proto-http>=1.26.0",
 ]
 
 [project.scripts]

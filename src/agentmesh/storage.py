@@ -251,6 +251,12 @@ class SQLiteStore:
         from agentmesh.observability import install_schema
 
         tables = [
+            "experiment_results",
+            "experiments",
+            "dataset_items",
+            "datasets",
+            "alert_events",
+            "alert_rules",
             "replay_runs",
             "replay_checkpoints",
             "evaluations",
@@ -416,6 +422,7 @@ class SQLiteStore:
         return events
 
     def list_all_events(self, limit: int | None = None) -> list[JsonObject]:
+        """Return events in chronological order; with ``limit``, the most recent ones."""
         sql = """
             select event_id, trace_id, span_id, parent_span_id, timestamp, event_type, actor, payload_json
             from events
@@ -423,7 +430,14 @@ class SQLiteStore:
         """
         params: tuple[object, ...] = ()
         if limit is not None:
-            sql += " limit ?"
+            sql = f"""
+                select * from (
+                    select rowid as _rowid, event_id, trace_id, span_id, parent_span_id, timestamp, event_type, actor, payload_json
+                    from events
+                    order by timestamp desc, rowid desc
+                    limit ?
+                ) order by timestamp asc, _rowid asc
+            """
             params = (limit,)
         with self._lock:
             rows = self._conn.execute(sql, params).fetchall()
@@ -897,8 +911,8 @@ class SQLiteStore:
     def overview(self) -> JsonObject:
         from agentmesh.observability import overview
 
-        with self._lock:
-            return overview(self._conn)
+        # Refreshes the provider health table, so commit instead of leaving a write transaction open.
+        return self._write(overview)  # type: ignore[return-value]
 
     def overview_timeseries(self) -> JsonObject:
         from agentmesh.observability import overview_timeseries
@@ -957,8 +971,7 @@ class SQLiteStore:
     def list_provider_health(self) -> list[JsonObject]:
         from agentmesh.observability import list_provider_health
 
-        with self._lock:
-            return list_provider_health(self._conn)
+        return self._write(list_provider_health)  # type: ignore[return-value]
 
     def list_models(self) -> list[JsonObject]:
         from agentmesh.observability import list_models
@@ -1021,6 +1034,224 @@ class SQLiteStore:
             result = save_evaluation(self._conn, payload)
             self._conn.commit()
             return result
+
+    def ingest_spans(self, spans: list[object], source: str = "otlp", capture_content: bool | None = None) -> JsonObject:
+        """Write spans from OTLP, the SDK, or any other framework-neutral source."""
+        from agentmesh.ingest import ingest_spans
+
+        with self._lock:
+            try:
+                result = ingest_spans(self._conn, spans, source, capture_content)  # type: ignore[arg-type]
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            return result
+
+    def save_score(self, payload: JsonObject) -> JsonObject:
+        from agentmesh.observability import save_score
+
+        with self._lock:
+            result = save_score(self._conn, payload)
+            self._conn.commit()
+            return result
+
+    def list_scores(self, trace_id: str | None = None, name: str | None = None, limit: int = 200) -> list[JsonObject]:
+        from agentmesh.observability import list_scores
+
+        with self._lock:
+            return list_scores(self._conn, trace_id, name, limit)
+
+    def list_sessions(self, limit: int = 100, user_id: str | None = None, offset: int = 0) -> list[JsonObject]:
+        from agentmesh.observability import list_sessions
+
+        with self._lock:
+            return list_sessions(self._conn, limit, user_id, offset)
+
+    def get_session(self, session_id: str) -> JsonObject | None:
+        from agentmesh.observability import get_session
+
+        with self._lock:
+            return get_session(self._conn, session_id)
+
+    def prune_traces(self, started_before: str, dry_run: bool = False, vacuum: bool = False) -> JsonObject:
+        from agentmesh.observability import prune_traces
+
+        with self._lock:
+            result = prune_traces(self._conn, started_before, dry_run)
+            self._conn.commit()
+            if vacuum and not dry_run:
+                self._conn.execute("vacuum")
+            return result
+
+    def search_spans(
+        self,
+        query: str | None = None,
+        status: str | None = None,
+        category: str | None = None,
+        limit: int = 50,
+    ) -> list[JsonObject]:
+        from agentmesh.observability import _span_to_json
+
+        where: list[str] = []
+        params: list[object] = []
+        if query:
+            like = f"%{query}%"
+            where.append("(name like ? or event_type like ? or error_message like ? or tool_name like ? or model like ? or agent_name like ?)")
+            params.extend([like] * 6)
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        if category:
+            where.append("(event_type like ? or metadata_json like ?)")
+            params.extend([f"{category}.%", f'%"category": "{category}"%'])
+        clause = f"where {' and '.join(where)}" if where else ""
+        with self._lock:
+            rows = self._conn.execute(
+                f"select * from spans {clause} order by started_at desc limit ?",
+                (*params, max(min(int(limit), 500), 1)),
+            ).fetchall()
+        return [_span_to_json(row) for row in rows]
+
+    # -- datasets and experiments ---------------------------------------------------
+
+    def _write(self, function: object, *args: object, **kwargs: object) -> object:
+        with self._lock:
+            try:
+                result = function(self._conn, *args, **kwargs)  # type: ignore[operator]
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+            return result
+
+    def _read(self, function: object, *args: object, **kwargs: object) -> object:
+        with self._lock:
+            return function(self._conn, *args, **kwargs)  # type: ignore[operator]
+
+    def create_dataset(
+        self, name: str, description: str | None = None, metadata: JsonObject | None = None, exist_ok: bool = False
+    ) -> JsonObject:
+        from agentmesh import datasets
+
+        return self._write(datasets.create_dataset, name, description, metadata, exist_ok)  # type: ignore[return-value]
+
+    def list_datasets(self) -> list[JsonObject]:
+        from agentmesh import datasets
+
+        return self._read(datasets.list_datasets)  # type: ignore[return-value]
+
+    def get_dataset(
+        self, ref: str, include_items: bool = True, limit: int | None = 5000, offset: int = 0
+    ) -> JsonObject | None:
+        from agentmesh import datasets
+
+        return self._read(datasets.get_dataset, ref, include_items, limit, offset)  # type: ignore[return-value]
+
+    def delete_dataset(self, ref: str) -> bool:
+        from agentmesh import datasets
+
+        return self._write(datasets.delete_dataset, ref)  # type: ignore[return-value]
+
+    def add_dataset_items(self, ref: str, items: list[JsonObject]) -> list[JsonObject]:
+        from agentmesh import datasets
+
+        return self._write(datasets.add_dataset_items, ref, items)  # type: ignore[return-value]
+
+    def add_trace_to_dataset(self, ref: str, trace_id: str, span_id: str | None = None, **kwargs: object) -> JsonObject:
+        from agentmesh import datasets
+
+        return self._write(datasets.add_trace_to_dataset, ref, trace_id, span_id, **kwargs)  # type: ignore[return-value]
+
+    def delete_dataset_item(self, ref: str, item_id: str) -> bool:
+        from agentmesh import datasets
+
+        return self._write(datasets.delete_dataset_item, ref, item_id)  # type: ignore[return-value]
+
+    def save_experiment(self, payload: JsonObject) -> JsonObject:
+        from agentmesh import datasets
+
+        return self._write(datasets.save_experiment, payload)  # type: ignore[return-value]
+
+    def list_experiments(self, dataset: str | None = None, limit: int = 100) -> list[JsonObject]:
+        from agentmesh import datasets
+
+        return self._read(datasets.list_experiments, dataset, limit)  # type: ignore[return-value]
+
+    def get_experiment(self, experiment_id: str) -> JsonObject | None:
+        from agentmesh import datasets
+
+        return self._read(datasets.get_experiment, experiment_id)  # type: ignore[return-value]
+
+    def delete_experiment(self, experiment_id: str) -> bool:
+        from agentmesh import datasets
+
+        return self._write(datasets.delete_experiment, experiment_id)  # type: ignore[return-value]
+
+    def compare_experiments(self, base_id: str, candidate_id: str) -> JsonObject | None:
+        from agentmesh import datasets
+
+        return self._read(datasets.compare_experiments, base_id, candidate_id)  # type: ignore[return-value]
+
+    # -- alerts -------------------------------------------------------------------------
+
+    def create_alert_rule(self, payload: JsonObject) -> JsonObject:
+        from agentmesh import alerts
+
+        return self._write(alerts.create_rule, payload)  # type: ignore[return-value]
+
+    def update_alert_rule(self, ref: str, payload: JsonObject) -> JsonObject | None:
+        from agentmesh import alerts
+
+        return self._write(alerts.update_rule, ref, payload)  # type: ignore[return-value]
+
+    def delete_alert_rule(self, ref: str) -> bool:
+        from agentmesh import alerts
+
+        return self._write(alerts.delete_rule, ref)  # type: ignore[return-value]
+
+    def get_alert_rule(self, ref: str) -> JsonObject | None:
+        from agentmesh import alerts
+
+        return self._read(alerts.get_rule, ref)  # type: ignore[return-value]
+
+    def list_alert_rules(self) -> list[JsonObject]:
+        from agentmesh import alerts
+
+        return self._read(alerts.list_rules)  # type: ignore[return-value]
+
+    def list_alert_events(self, limit: int = 100, rule: str | None = None) -> list[JsonObject]:
+        from agentmesh import alerts
+
+        return self._read(alerts.list_events, limit, rule)  # type: ignore[return-value]
+
+    def check_alerts(self, deliver: bool = True, now: object = None) -> list[JsonObject]:
+        """Evaluate enabled alert rules once and deliver any notifications (outside the store lock)."""
+        from agentmesh import alerts
+
+        events: list[JsonObject] = self._write(alerts.check_rules, now)  # type: ignore[assignment]
+        fired: list[JsonObject] = []
+        for event in events:
+            delivered, error = False, None
+            if event["notify"]:
+                error = alerts.deliver(event) if deliver else "delivery skipped"
+                delivered = error is None
+                self._write(alerts.mark_delivered, event["alert_id"], error)
+            public = {key: value for key, value in event.items() if key not in {"channel", "notify"}}
+            fired.append({**public, "delivered": delivered, "delivery_error": error})
+        return fired
+
+    def test_alert_rule(self, ref: str) -> JsonObject | None:
+        from agentmesh import alerts
+
+        with self._lock:
+            rule = alerts.get_rule(self._conn, ref, reveal=True)
+        if rule is None:
+            return None
+        if not rule["channel"].get("url"):
+            return {"delivered": False, "error": "rule has no webhook url"}
+        error = alerts.deliver(alerts.test_payload(rule))
+        return {"delivered": error is None, "error": error}
 
     def create_replay(self, trace_id: str, span_id: str | None, mode: str, result: JsonObject) -> JsonObject:
         from agentmesh.observability import create_replay

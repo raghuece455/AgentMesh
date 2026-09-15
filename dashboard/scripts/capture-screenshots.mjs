@@ -27,11 +27,19 @@ async function main() {
     await waitFor(client, 'Recent Traces')
     await waitFor(client, 'replay-regression-demo')
     await shot(client, 'overview-trace-launchpad.png')
-    await click(client, 'Open')
+    await clickNear(client, 'Open', 'research-writer-reviewer')
     await waitFor(client, 'Span Tree')
     await waitFor(client, 'Waterfall Timeline')
     await waitFor(client, 'Export OTEL JSON')
     await shot(client, 'trace-detail-cockpit.png')
+    await click(client, 'Sessions')
+    await waitFor(client, 'demo-chat-1001')
+    await waitFor(client, 'Turn 3')
+    await shot(client, 'sessions.png')
+    await clickLast(client, 'Open trace')
+    await waitFor(client, 'Insights & Scores')
+    await waitFor(client, 'identical arguments')
+    await shot(client, 'trace-insights.png')
     await click(client, 'Workflows')
     await waitFor(client, 'Temporal Execution View')
     await shot(client, 'workflow-graph.png')
@@ -40,7 +48,23 @@ async function main() {
     await shot(client, 'cost-center.png')
     await click(client, 'Replay')
     await waitFor(client, 'Replay Controls')
+    await click(client, 'Replay full trace')
+    await waitFor(client, 'source_trace_id')
     await shot(client, 'replay-studio.png')
+    await click(client, 'Connect')
+    await waitFor(client, 'Connect your agents')
+    await shot(client, 'connect.png')
+    await click(client, 'Datasets')
+    await waitFor(client, 'support-bot prompt-v2')
+    await shot(client, 'datasets-experiments.png')
+    await click(client, 'Compare')
+    await waitFor(client, 'Regressed')
+    await waitFor(client, 'model call timed out')
+    await shot(client, 'experiment-compare.png')
+    await click(client, 'Alerts')
+    await waitFor(client, 'Agent tool loops')
+    await waitFor(client, 'Recent notifications')
+    await shot(client, 'alerts.png')
     client.close()
     console.log(`Screenshots written to ${outDir}`)
   }
@@ -127,7 +151,30 @@ async function click(client, label) {
   await client.send('Runtime.evaluate', { expression: `[...document.querySelectorAll('button')].find(item => item.textContent.trim().startsWith(${JSON.stringify(label)}))?.click()` })
 }
 
+async function clickNear(client, label, text) {
+  // Click the first button labelled `label` whose surrounding card mentions `text`.
+  await client.send('Runtime.evaluate', {
+    expression: `(() => {
+      for (const button of [...document.querySelectorAll('button')].filter(item => item.textContent.trim().startsWith(${JSON.stringify(label)}))) {
+        for (let node = button, depth = 0; node && depth < 6; node = node.parentElement, depth++) {
+          if (node.innerText && node.innerText.includes(${JSON.stringify(text)}) && node.innerText.length < 1500) {
+            button.click()
+            return true
+          }
+        }
+      }
+      return false
+    })()`,
+  })
+}
+
+async function clickLast(client, label) {
+  await client.send('Runtime.evaluate', { expression: `[...document.querySelectorAll('button')].filter(item => item.textContent.trim().startsWith(${JSON.stringify(label)})).pop()?.click()` })
+}
+
 async function shot(client, name) {
+  await client.send('Runtime.evaluate', { expression: 'window.scrollTo(0, 0)' })
+  await sleep(600)
   const result = await client.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
   writeFileSync(join(outDir, name), Buffer.from(result.result.data, 'base64'))
 }

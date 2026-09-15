@@ -2,9 +2,11 @@ import { Activity, Download, FileJson, GitBranch, ListTree, RotateCcw, ShieldChe
 import type { CompareResult, SpanRecord, TraceDetail as TraceDetailData } from '../../types'
 import { formatCost, formatMs, formatNumber, formatTime, numeric, traceCostStatus } from '../../utils/format'
 import { ActionButton } from '../common/Actions'
-import { CopyableId, CostStatusBadge, EnvironmentBadge, ProviderBadge, StatusBadge } from '../common/Badges'
+import { Badge, CopyableId, CostStatusBadge, EnvironmentBadge, ProviderBadge, StatusBadge } from '../common/Badges'
 import { AnswerCard, EmptyState, Panel } from '../common/Cards'
 import { DataTable } from '../tables/DataTable'
+import { AddToDataset } from './AddToDataset'
+import { InsightsPanel } from './InsightsPanel'
 import { SpanTree } from './SpanTree'
 import { TraceInspector } from './TraceInspector'
 import { WaterfallTimeline } from './WaterfallTimeline'
@@ -55,6 +57,10 @@ export function TraceDetail({
               <CopyableId value={trace.trace_id} />
               <span>Started {formatTime(trace.started_at)}</span>
               <span>Duration {formatMs(trace.duration_ms ?? trace.max_latency_ms)}</span>
+              {trace.session_id && <Badge tone="info">session {trace.session_id}</Badge>}
+              {trace.user_id && <Badge>user {trace.user_id}</Badge>}
+              {trace.source && trace.source !== 'runtime' && <Badge tone="purple">{trace.source}{trace.service_name ? ` / ${trace.service_name}` : ''}</Badge>}
+              {(trace.tags ?? []).map(tag => <Badge key={tag} outline>{tag}</Badge>)}
               <ProviderBadge provider={provider} model={model} />
             </div>
           </div>
@@ -64,17 +70,20 @@ export function TraceDetail({
             <ActionButton icon={<Download className="size-4" />} label="Export OTEL JSON" onClick={() => onExport(trace.trace_id, 'otel-json')} />
             <ActionButton icon={<GitBranch className="size-4" />} label="Compare" onClick={() => onCompare(trace.trace_id)} />
             <ActionButton icon={<ShieldCheck className="size-4" />} label="Validate" onClick={() => onValidate(trace.trace_id)} />
+            <AddToDataset traceId={trace.trace_id} />
           </div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-6">
           <AnswerCard label="Cost" value={formatCost(trace.estimated_cost, costStatus)} />
           <AnswerCard label="Tokens" value={formatNumber(trace.total_tokens)} />
           <AnswerCard label="Spans" value={formatNumber(trace.span_count)} />
-          <AnswerCard label="Slowest" value={slowest ? `${slowest.event_type} / ${formatMs(slowest.duration_ms)}` : 'n/a'} />
-          <AnswerCard label="Expensive" value={expensive ? `${expensive.event_type} / ${formatCost(expensive.estimated_cost, costStatus)}` : 'n/a'} />
-          <AnswerCard label="Failure" value={failed ? `${failed.agent_name ?? 'workflow'} / ${failed.error_type ?? failed.event_type}` : 'none'} tone={failed ? 'danger' : 'good'} />
+          <AnswerCard label="Slowest" value={slowest ? `${slowest.name ?? slowest.event_type} / ${formatMs(slowest.duration_ms)}` : 'n/a'} />
+          <AnswerCard label="Expensive" value={expensive ? `${expensive.name ?? expensive.event_type} / ${formatCost(expensive.estimated_cost, costStatus)}` : 'n/a'} />
+          <AnswerCard label="Failure" value={failed ? `${failed.agent_name ?? failed.name ?? 'workflow'} / ${failed.error_type ?? failed.event_type}` : 'none'} tone={failed ? 'danger' : 'good'} />
         </div>
       </Panel>
+
+      <InsightsPanel key={trace.trace_id} traceId={trace.trace_id} insights={detail?.insights} scores={detail?.scores ?? []} spans={spans} onSelectSpan={onSelectSpan} />
 
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[320px_minmax(0,1fr)_420px]">
         <Panel title="Span Tree" icon={<ListTree className="size-4" />}>

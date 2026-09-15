@@ -1,0 +1,31 @@
+# Run AgentMesh on PostgreSQL instead of the SQLite volume:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build
+#
+# Change POSTGRES_PASSWORD (and the password in AGENTMESH_DB_URL) before using this beyond your machine.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: agentmesh
+      POSTGRES_PASSWORD: ${AGENTMESH_POSTGRES_PASSWORD:-agentmesh}
+      POSTGRES_DB: agentmesh
+    volumes:
+      - agentmesh-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agentmesh -d agentmesh"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  dashboard:
+    environment:
+      # Keep your data: demo seeding resets the database on every start, so it is off here unless you ask for it.
+      AGENTMESH_DEMO_SEED: ${AGENTMESH_DEMO_SEED:-false}
+      AGENTMESH_DB_URL: postgresql://agentmesh:${AGENTMESH_POSTGRES_PASSWORD:-agentmesh}@postgres:5432/agentmesh
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  agentmesh-postgres:

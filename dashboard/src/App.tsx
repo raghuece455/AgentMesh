@@ -9,6 +9,7 @@ import {
   getCostCenterSummary,
   getEvaluationSummary,
   getHealth,
+  getIntegrations,
   getOverview,
   getOverviewTimeseries,
   getTrace,
@@ -25,11 +26,14 @@ import {
   listPrompts,
   listProviders,
   listRagRetrievals,
+  listSessions,
   listToolCalls,
   listTraces,
   listWorkflows,
   rejectRequest,
   runEvaluation,
+  setApiKey,
+  subscribeLiveEvents,
 } from './api'
 import type { JsonRecord, SpanRecord, TraceSummary } from './types'
 import type { ConnectionState, Section } from './appTypes'
@@ -37,6 +41,9 @@ import { emptyData, type DashboardData, type LiveEventRecord } from './appTypes'
 import { ConnectionDiagnostics, GlobalFilters } from './components/layout/GlobalFilters'
 import { MobileNav, Sidebar } from './components/layout/Navigation'
 import { TopBar } from './components/layout/TopBar'
+import { AlertsPage } from './pages/AlertsPage'
+import { DatasetsPage } from './pages/DatasetsPage'
+import { ConnectPage, SessionsPage } from './pages/ObservabilityPages'
 import { OverviewPage } from './pages/OverviewPage'
 import { TraceExplorerPage } from './pages/TraceExplorerPage'
 import { WorkflowsPage } from './pages/WorkflowsPage'
@@ -54,10 +61,22 @@ import {
 } from './pages/SecondaryPages'
 import { parseFailedEndpoint, stringValue } from './utils/format'
 
+const SECTIONS: Section[] = ['overview', 'traces', 'sessions', 'datasets', 'alerts', 'connect', 'workflows', 'agents', 'models', 'tools', 'memory', 'prompts', 'costs', 'evaluations', 'approvals', 'replay', 'settings']
+
+/** Deep links: ?trace=<id> (used in alert notifications), ?page=datasets&experiment=<id>, ?page=<section>. */
+function initialLink(): { section: Section; traceId: string; experimentId?: string } {
+  const params = new URLSearchParams(window.location.search)
+  const page = params.get('page') as Section | null
+  const traceId = params.get('trace') ?? ''
+  const section = traceId ? 'traces' : page && SECTIONS.includes(page) ? page : 'overview'
+  return { section, traceId, experimentId: params.get('experiment') ?? undefined }
+}
+
 export function App() {
-  const [section, setSection] = useState<Section>('overview')
+  const [link] = useState(initialLink)
+  const [section, setSection] = useState<Section>(link.section)
   const [data, setData] = useState<DashboardData>(emptyData)
-  const [selectedTraceId, setSelectedTraceId] = useState('')
+  const [selectedTraceId, setSelectedTraceId] = useState(link.traceId)
   const [traceDetail, setTraceDetail] = useState<Awaited<ReturnType<typeof getTrace>> | null>(null)
   const [selectedSpan, setSelectedSpan] = useState<SpanRecord | null>(null)
   const [workflowGraph, setWorkflowGraph] = useState<Awaited<ReturnType<typeof getWorkflowGraph>> | null>(null)
@@ -81,6 +100,7 @@ export function App() {
   const [replayResult, setReplayResult] = useState<Awaited<ReturnType<typeof createReplay>> | null>(null)
   const [compareResult, setCompareResult] = useState<Awaited<ReturnType<typeof compareTraces>> | null>(null)
   const liveRefreshTimer = useRef<number | null>(null)
+  const [apiKeyVersion, setApiKeyVersion] = useState(0)
 
   async function loadTrace(traceId: string) {
     if (!traceId)
@@ -121,6 +141,8 @@ export function App() {
         approvals,
         checkpoints,
         auditLogs,
+        sessions,
+        integrations,
       ] = await Promise.all([
         getHealth(),
         getOverview(),
@@ -147,9 +169,11 @@ export function App() {
         listApprovals(),
         listCheckpoints(),
         listAuditLogs(),
+        listSessions(),
+        getIntegrations(),
       ])
       setHealth(healthStatus)
-      setData({ overview, timeseries, traces, workflows, agents, providers, models, modelCalls, costs, costByWorkflow, costByAgent, costByModel, costByProvider, costByFailedRun, toolCalls, memoryRecords, memoryOperations, ragRetrievals, prompts, evaluations, evaluationSummary, approvals, checkpoints, auditLogs })
+      setData({ overview, timeseries, traces, workflows, agents, providers, models, modelCalls, costs, costByWorkflow, costByAgent, costByModel, costByProvider, costByFailedRun, toolCalls, memoryRecords, memoryOperations, ragRetrievals, prompts, evaluations, evaluationSummary, approvals, checkpoints, auditLogs, sessions, integrations })
       const now = new Date().toISOString()
       setConnection(current => ({ ...current, backendStatus: 'ok', lastSuccessfulRefresh: now, lastUpdated: now, lastFailedEndpoint: null, lastError: null }))
       const nextTraceId = selectedTraceId || traces[0]?.trace_id || ''
@@ -184,16 +208,16 @@ export function App() {
   }, [dark])
 
   useEffect(() => {
-    const source = new EventSource('/api/events/live')
-    source.onopen = () => setConnection(current => ({ ...current, liveStatus: 'connected' }))
-    const onLiveEvent = (event: MessageEvent) => {
+    const onLiveEvent = (type: string, data: string) => {
+      if (type !== 'trace_event')
+        return
       const now = new Date().toISOString()
       let traceId: string | undefined
-      let liveType = event.type || 'trace_event'
+      let liveType = type
       try {
-        const payload = JSON.parse(event.data) as JsonRecord
+        const payload = JSON.parse(data) as JsonRecord
         traceId = stringValue(payload.trace_id) || undefined
-        liveType = stringValue(payload.live_event || event.type || 'trace_event')
+        liveType = stringValue(payload.live_event || type)
       }
       catch {
         traceId = undefined
@@ -207,18 +231,17 @@ export function App() {
         }, 1800)
       }
     }
-    source.addEventListener('trace_event', onLiveEvent)
-    source.onerror = () => {
-      setConnection(current => ({ ...current, liveStatus: 'disconnected' }))
-      source.close()
-    }
+    const close = subscribeLiveEvents({
+      onOpen: () => setConnection(current => ({ ...current, liveStatus: 'connected' })),
+      onEvent: onLiveEvent,
+      onError: () => setConnection(current => ({ ...current, liveStatus: 'disconnected' })),
+    })
     return () => {
       if (liveRefreshTimer.current !== null)
         window.clearTimeout(liveRefreshTimer.current)
-      source.removeEventListener('trace_event', onLiveEvent)
-      source.close()
+      close()
     }
-  }, [filters, query, selectedTraceId])
+  }, [filters, query, selectedTraceId, apiKeyVersion])
 
   const activeTrace = traceDetail?.trace ?? data.traces.find(trace => trace.trace_id === selectedTraceId) ?? null
 
@@ -264,6 +287,8 @@ export function App() {
     selectedTraceId,
     selectedSpan,
     filters,
+    refreshKey: connection.lastSuccessfulRefresh,
+    initialExperimentId: link.experimentId,
     compareResult,
     workflowGraph,
     replayResult,
@@ -292,7 +317,16 @@ export function App() {
             <TopBar activeTrace={activeTrace as TraceSummary | null} query={query} loading={loading} dark={dark} onQuery={setQuery} onRefresh={() => void refresh(filters)} onTheme={() => setDark(value => !value)} />
             <MobileNav section={section} onSection={setSection} />
             <GlobalFilters filters={filters} workflows={data.workflows} providers={data.providers} models={data.models} connection={connection} health={health} onFilters={next => { setFilters(next); void refresh(next) }} onRefresh={() => void refresh(filters)} />
-            <ConnectionDiagnostics connection={connection} error={error} onRetry={() => void refresh(filters)} />
+            <ConnectionDiagnostics
+              connection={connection}
+              error={error}
+              onRetry={() => void refresh(filters)}
+              onApiKey={key => {
+                setApiKey(key)
+                setApiKeyVersion(version => version + 1)
+                void refresh(filters)
+              }}
+            />
             {page}
           </div>
         </section>
@@ -309,6 +343,8 @@ function renderPage(args: {
   selectedTraceId: string
   selectedSpan: SpanRecord | null
   filters: JsonRecord
+  refreshKey: string | null
+  initialExperimentId?: string
   compareResult: Awaited<ReturnType<typeof compareTraces>> | null
   workflowGraph: Awaited<ReturnType<typeof getWorkflowGraph>> | null
   replayResult: Awaited<ReturnType<typeof createReplay>> | null
@@ -329,6 +365,14 @@ function renderPage(args: {
     return <OverviewPage overview={data.overview} timeseries={data.timeseries} traces={data.traces} providers={data.providers} models={data.models} modelCalls={data.modelCalls} toolCalls={data.toolCalls} costs={data.costs} liveEvents={args.liveEvents} onTraceSelect={args.onTraceSelect} onExport={args.onExport} onReplay={args.onReplay} onCompare={args.onCompare} />
   if (section === 'traces')
     return <TraceExplorerPage traces={data.traces} detail={args.traceDetail} selectedTraceId={args.selectedTraceId} selectedSpan={args.selectedSpan} filters={args.filters} modelCalls={data.modelCalls} toolCalls={data.toolCalls} compareResult={args.compareResult} onFilters={args.onFilters} onSelectTrace={args.onTraceSelect} onSelectSpan={args.onSelectSpan} onExport={args.onExport} onReplay={args.onReplay} onCompare={args.onCompare} onValidate={args.onValidate} />
+  if (section === 'sessions')
+    return <SessionsPage sessions={data.sessions} onTraceSelect={args.onTraceSelect} />
+  if (section === 'datasets')
+    return <DatasetsPage refreshKey={args.refreshKey} initialExperimentId={args.initialExperimentId} onTraceSelect={args.onTraceSelect} />
+  if (section === 'alerts')
+    return <AlertsPage refreshKey={args.refreshKey} />
+  if (section === 'connect')
+    return <ConnectPage integrations={data.integrations} />
   if (section === 'workflows')
     return <WorkflowsPage workflows={data.workflows} traces={data.traces} approvals={data.approvals} checkpoints={data.checkpoints} activeGraph={args.workflowGraph} onGraph={args.onWorkflowGraph} onNodeReplay={args.onReplay} />
   if (section === 'agents')

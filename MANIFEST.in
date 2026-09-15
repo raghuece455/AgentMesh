@@ -1,0 +1,2 @@
+# The wheel is built from the sdist, so the prebuilt dashboard must travel with it.
+recursive-include dashboard/dist *

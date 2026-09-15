@@ -1,6 +1,6 @@
 # Examples
 
-AgentMesh ships with 20 runnable examples covering every major feature. All examples use `MockModelProvider` or a local provider by default — no API key required unless noted.
+AgentMesh ships with 23 runnable examples covering every major feature. Examples use `MockModelProvider`, a local provider, or the SDK offline by default — no API key required unless noted.
 
 ---
 
@@ -24,6 +24,17 @@ agentmesh dashboard
 ---
 
 ## Example Index
+
+### Observe any agent
+
+| File | What it demonstrates |
+|---|---|
+| `sdk_quickstart.py` | Trace plain Python with `@agentmesh.observe`, `trace()`, sessions, and scores. Offline, no API keys. |
+| `otel_genai_export.py` | A standard OpenTelemetry app sending GenAI spans to `POST /v1/traces` (needs a running dashboard) |
+| `llm_client_auto_instrumentation.py` | `instrument_openai()` / `instrument_anthropic()` with real API calls, including streaming |
+| `datasets_experiments.py` | Save a trace as a test case, run two agent versions as experiments with `ExactMatch`, `Contains`, and `LLMJudge`, then compare. Offline, no API keys. |
+| `../sdks/typescript/examples/quickstart.mjs` | TypeScript: trace a Node.js agent with a session and scores (needs a running dashboard) |
+| `../sdks/typescript/examples/experiment.mjs` | TypeScript: run an experiment over a dataset stored in AgentMesh |
 
 ### Basics
 

@@ -1,0 +1,60 @@
+{
+  "name": "agentmesh-sdk",
+  "version": "0.4.0",
+  "description": "Trace, score, and evaluate AI agents in TypeScript/JavaScript. Sends OpenTelemetry (OTLP/JSON) traces to AgentMesh, the open-source agent observability platform.",
+  "license": "MIT",
+  "author": "Raghu Juluri",
+  "homepage": "https://github.com/raghuece455/AgentMesh/tree/main/sdks/typescript#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raghuece455/AgentMesh.git",
+    "directory": "sdks/typescript"
+  },
+  "bugs": "https://github.com/raghuece455/AgentMesh/issues",
+  "keywords": [
+    "agents",
+    "ai",
+    "llm",
+    "observability",
+    "tracing",
+    "opentelemetry",
+    "genai",
+    "openai",
+    "anthropic",
+    "evaluation",
+    "llm-as-judge"
+  ],
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "clean": "node scripts/clean.mjs",
+    "build": "node scripts/clean.mjs && tsc -p tsconfig.json && tsc -p tsconfig.cjs.json && node scripts/postbuild.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test \"test/*.test.mjs\"",
+    "prepublishOnly": "npm test"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "0.125.0",
+    "@types/node": "20.19.43",
+    "openai": "7.15.0",
+    "typescript": "5.9.3"
+  }
+}

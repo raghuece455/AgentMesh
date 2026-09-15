@@ -1,661 +1,291 @@
+"""PostgreSQL storage with the same features as the SQLite store.
+
+``PostgreSQLStore`` reuses every query of :class:`~agentmesh.storage.SQLiteStore` through a small
+connection adapter that translates the SQLite dialect those queries are written in:
+
+* ``?`` placeholders -> ``%s`` (and literal ``%`` -> ``%%``)
+* ``insert or replace`` -> ``insert ... on conflict (<primary key>) do update``
+* ``insert or ignore`` -> ``insert ... on conflict do nothing``
+* ``like`` -> ``ilike`` (SQLite's ``like`` is case-insensitive)
+* ``rowid`` -> ``ctid`` (physical order, used only as a tie-breaker)
+* DDL types: ``integer`` -> ``bigint``, ``real`` -> ``double precision``, autoincrement -> ``bigserial``;
+  foreign keys are dropped, as SQLite does not enforce them by default
+* ``pragma table_info`` -> ``information_schema.columns``
+
+Transactions follow ``sqlite3``'s default: a transaction starts before the first write and lasts until
+``commit()``; reads outside one run in autocommit mode, so idle connections never hold a snapshot.
+
+Databases created by the pre-0.4 ``PostgreSQLStore`` (``jsonb`` columns, foreign keys) are upgraded
+in place on first connect.
+"""
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+import threading
+from decimal import Decimal
+from typing import Any
 
 from agentmesh.dependencies import optional_import
-from agentmesh.storage import EventRecord, TraceSummary
-from agentmesh.types import JsonObject, JsonValue, dumps_json, loads_json, safe_json, utc_now
+from agentmesh.storage import SQLiteStore
+
+_WRITE_PREFIXES = ("insert", "update", "delete", "create", "alter", "drop", "replace")
+_STRING_OR_CODE = re.compile(r"('(?:[^']|'')*')|(\"(?:[^\"]|\"\")*\")")
+_INSERT_OR = re.compile(r"^\s*insert\s+or\s+(replace|ignore)\s+into\s+(\w+)\s*\(([^)]*)\)", re.IGNORECASE | re.DOTALL)
+_PRAGMA_TABLE_INFO = re.compile(r"^\s*pragma\s+table_info\s*\(\s*(\w+)\s*\)\s*$", re.IGNORECASE)
+_FOREIGN_KEY = re.compile(r",\s*foreign\s+key\s*\([^)]*\)\s*references\s+\w+\s*\([^)]*\)", re.IGNORECASE)
+_REFERENCES = re.compile(r"\s+references\s+\w+\s*\([^)]*\)", re.IGNORECASE)
 
 
-@dataclass(slots=True)
-class PostgreSQLStore:
-    dsn: str
-    _psycopg: object = field(init=False, repr=False)
-    _conn: object = field(init=False, repr=False)
+class PostgreSQLStore(SQLiteStore):
+    """AgentMesh storage on PostgreSQL: runtime traces, OTLP/SDK ingestion, sessions, scores,
+    datasets, experiments, and alerts. Requires ``pip install "agentmesh-ai[postgres]"``."""
 
-    def __post_init__(self) -> None:
-        psycopg = optional_import("psycopg", "postgres")
-        self._psycopg = psycopg
-        self._conn = psycopg.connect(self.dsn)
+    def __init__(self, dsn: str) -> None:  # noqa: D107 - intentionally does not call SQLiteStore.__init__
+        self.dsn = dsn
+        self.path = None  # type: ignore[assignment]
+        self._lock = threading.RLock()
+        self._conn = PostgresConnection(dsn)  # type: ignore[assignment]
+        with self._lock:
+            _upgrade_legacy_schema(self._conn)
         self._migrate()
 
+    def _schema_is_ready(self) -> bool:
+        rows = self._conn.execute(
+            "select table_name as name from information_schema.tables where table_schema = current_schema()"
+        ).fetchall()
+        names = {str(row["name"]) for row in rows}
+        return {"workflows", "events", "workflow_runs", "spans", "schema_migrations", "traces"} <= names
+
+
+class PostgresConnection:
+    """The subset of ``sqlite3.Connection`` AgentMesh uses, backed by psycopg 3."""
+
+    def __init__(self, dsn: str) -> None:
+        self._psycopg = optional_import("psycopg", "postgres")
+        self.dsn = dsn
+        self._raw = self._connect()
+        self._in_transaction = False
+        self._primary_keys: dict[str, list[str]] = {}
+        self._translations: dict[str, str | None] = {}
+
+    def _connect(self) -> Any:
+        # No server-side prepared statements: they break behind transaction-pooling proxies
+        # (PgBouncer, Supabase/Neon poolers), and the translated SQL is already cached here.
+        return self._psycopg.connect(self.dsn, autocommit=True, prepare_threshold=None)
+
+    def execute(self, sql: str, params: Any = ()) -> PostgresCursor:
+        translated = self._translate(sql)
+        if translated is None:
+            return PostgresCursor(None)
+        if self._raw.closed or self._raw.broken:
+            if self._in_transaction:
+                self._in_transaction = False
+                raise self._psycopg.OperationalError("PostgreSQL connection lost during a transaction")
+            self._raw = self._connect()
+        if not self._in_transaction and translated.lstrip()[:7].lower().startswith(_WRITE_PREFIXES):
+            self._raw.execute("begin")
+            self._in_transaction = True
+        cursor = self._raw.cursor(row_factory=_row_factory)
+        try:
+            cursor.execute(translated, tuple(_adapt(value) for value in params or ()))
+        except Exception:
+            if self._in_transaction:
+                # PostgreSQL aborts the whole transaction on an error; end it so the connection stays usable.
+                self.rollback()
+            raise
+        return PostgresCursor(cursor)
+
+    def commit(self) -> None:
+        if self._in_transaction:
+            self._in_transaction = False
+            self._raw.execute("commit")
+
+    def rollback(self) -> None:
+        if self._in_transaction:
+            self._in_transaction = False
+            if not self._raw.closed:
+                try:
+                    self._raw.execute("rollback")
+                except self._psycopg.Error:
+                    self._raw.close()  # reconnect on next use rather than reuse a connection in an unknown state
+
     def close(self) -> None:
-        self._conn.close()
+        self._raw.close()
 
-    def _migrate(self) -> None:
-        statements = [
-            """
-            create table if not exists workflows (
-              trace_id text primary key,
-              name text not null,
-              status text not null,
-              started_at text not null,
-              ended_at text,
-              input_json jsonb,
-              output_json jsonb,
-              error_json jsonb
-            )
-            """,
-            """
-            create table if not exists events (
-              event_id text primary key,
-              trace_id text not null references workflows(trace_id),
-              span_id text not null,
-              parent_span_id text,
-              timestamp text not null,
-              event_type text not null,
-              actor text not null,
-              payload_json jsonb not null
-            )
-            """,
-            "create index if not exists idx_events_trace_time on events(trace_id, timestamp)",
-            """
-            create table if not exists memories (
-              id bigserial primary key,
-              agent text not null,
-              namespace text not null,
-              key text not null,
-              value_json jsonb not null,
-              version integer not null,
-              trace_id text,
-              created_at text not null,
-              updated_at text not null
-            )
-            """,
-            "create index if not exists idx_memories_lookup on memories(agent, namespace, key, version)",
-            """
-            create table if not exists audit_logs (
-              id bigserial primary key,
-              trace_id text,
-              actor text not null,
-              action text not null,
-              resource text not null,
-              payload_json jsonb not null,
-              timestamp text not null
-            )
-            """,
-            """
-            create table if not exists documents (
-              id text primary key,
-              source text not null,
-              content text not null,
-              metadata_json jsonb not null,
-              embedding_json jsonb not null,
-              created_at text not null
-            )
-            """,
-            """
-            create table if not exists checkpoints (
-              checkpoint_id text primary key,
-              trace_id text not null references workflows(trace_id),
-              step_id text,
-              checkpoint_type text not null,
-              state_json jsonb not null,
-              created_at text not null
-            )
-            """,
-            "create index if not exists idx_checkpoints_trace on checkpoints(trace_id, created_at)",
-            """
-            create table if not exists prompt_versions (
-              prompt_id text primary key,
-              trace_id text,
-              agent text not null,
-              task_id text,
-              prompt_hash text not null,
-              system_prompt text,
-              user_prompt text not null,
-              metadata_json jsonb not null,
-              created_at text not null
-            )
-            """,
-            "create index if not exists idx_prompt_versions_trace on prompt_versions(trace_id, created_at)",
-            """
-            create table if not exists approvals (
-              approval_id text primary key,
-              trace_id text,
-              agent text not null,
-              tool text not null,
-              arguments_json jsonb not null,
-              status text not null,
-              reason text,
-              created_at text not null,
-              resolved_at text
-            )
-            """,
-            "create index if not exists idx_approvals_status on approvals(status, created_at)",
-            """
-            create table if not exists task_results (
-              idempotency_key text primary key,
-              trace_id text not null,
-              task_id text not null,
-              value_json jsonb not null,
-              created_at text not null
-            )
-            """,
-        ]
-        with self._conn.cursor() as cursor:
-            for statement in statements:
-                cursor.execute(statement)
-        self._conn.commit()
+    # -- dialect translation -------------------------------------------------------------
 
-    def create_workflow(self, trace_id: str, name: str, input_value: JsonValue) -> None:
-        with self._conn.cursor() as cursor:
+    def _translate(self, sql: str) -> str | None:
+        cached = self._translations.get(sql, "")
+        if cached != "":
+            return cached
+        translated = self._translate_uncached(sql)
+        if len(self._translations) < 4096:
+            self._translations[sql] = translated
+        return translated
+
+    def _translate_uncached(self, sql: str) -> str | None:
+        stripped = sql.strip().rstrip(";")
+        lowered = stripped.lower()
+        pragma = _PRAGMA_TABLE_INFO.match(stripped)
+        if pragma:
+            return (
+                "select column_name as name from information_schema.columns "
+                f"where table_schema = current_schema() and table_name = '{pragma.group(1).lower()}'"
+            )
+        if lowered.startswith(("pragma", "vacuum")):
+            return "vacuum" if lowered.startswith("vacuum") else None
+        suffix = ""
+        match = _INSERT_OR.match(stripped)
+        if match:
+            action, table, columns = match.group(1).lower(), match.group(2), match.group(3)
+            stripped = re.sub(r"^\s*insert\s+or\s+(replace|ignore)\s+into", "insert into", stripped, count=1, flags=re.IGNORECASE)
+            if action == "ignore":
+                suffix = " on conflict do nothing"
+            else:
+                keys = self._primary_key(table)
+                names = [name.strip() for name in columns.split(",") if name.strip()]
+                updates = [f"{name} = excluded.{name}" for name in names if name not in keys]
+                target = ", ".join(keys)
+                suffix = f" on conflict ({target}) do update set {', '.join(updates)}" if updates else f" on conflict ({target}) do nothing"
+        is_ddl = lowered.startswith(("create table", "alter table"))
+        parts: list[str] = []
+        position = 0
+        for literal in _STRING_OR_CODE.finditer(stripped):
+            parts.append(_translate_code(stripped[position : literal.start()], is_ddl))
+            parts.append(literal.group(0).replace("%", "%%"))
+            position = literal.end()
+        parts.append(_translate_code(stripped[position:], is_ddl))
+        return "".join(parts) + suffix
+
+    def _primary_key(self, table: str) -> list[str]:
+        if table not in self._primary_keys:
+            cursor = self._raw.cursor()
             cursor.execute(
                 """
-                insert into workflows
-                (trace_id, name, status, started_at, ended_at, input_json, output_json, error_json)
-                values (%s, %s, %s, %s, null, %s::jsonb, null, null)
-                on conflict (trace_id) do update
-                set name = excluded.name, status = excluded.status, started_at = excluded.started_at,
-                    ended_at = null, input_json = excluded.input_json, output_json = null, error_json = null
+                select a.attname
+                from pg_index i
+                join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
+                where i.indrelid = to_regclass(%s) and i.indisprimary
                 """,
-                (trace_id, name, "running", utc_now(), dumps_json(input_value)),
+                (table,),
             )
-        self._conn.commit()
+            keys = [str(row[0]) for row in cursor.fetchall()]
+            if not keys:
+                raise ValueError(f"insert or replace into {table}: table has no primary key")
+            self._primary_keys[table] = keys
+        return self._primary_keys[table]
 
-    def finish_workflow(
-        self,
-        trace_id: str,
-        status: str,
-        output_value: JsonValue | None = None,
-        error_value: JsonValue | None = None,
-    ) -> None:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                update workflows
-                set status = %s, ended_at = %s, output_json = %s::jsonb, error_json = %s::jsonb
-                where trace_id = %s
-                """,
-                (status, utc_now(), dumps_json(output_value), dumps_json(error_value), trace_id),
-            )
-        self._conn.commit()
 
-    def record_event(self, event: EventRecord) -> None:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                insert into events
-                (event_id, trace_id, span_id, parent_span_id, timestamp, event_type, actor, payload_json)
-                values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                """,
-                (
-                    event.event_id,
-                    event.trace_id,
-                    event.span_id,
-                    event.parent_span_id,
-                    event.timestamp,
-                    event.event_type,
-                    event.actor,
-                    dumps_json(event.payload),
-                ),
-            )
-        self._conn.commit()
+class PostgresCursor:
+    def __init__(self, cursor: Any) -> None:
+        self._cursor = cursor
 
-    def list_traces(self, limit: int = 50) -> list[TraceSummary]:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                select trace_id, name, status, started_at, ended_at, error_json::text
-                from workflows
-                order by started_at desc
-                limit %s
-                """,
-                (limit,),
-            )
-            rows = cursor.fetchall()
-        return [
-            TraceSummary(row[0], row[1], row[2], row[3], row[4], loads_json(row[5]))
-            for row in rows
-        ]
+    @property
+    def rowcount(self) -> int:
+        return int(self._cursor.rowcount) if self._cursor is not None else 0
 
-    def get_trace(self, trace_id: str) -> JsonObject | None:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                select trace_id, name, status, started_at, ended_at, input_json::text, output_json::text, error_json::text
-                from workflows
-                where trace_id = %s
-                """,
-                (trace_id,),
-            )
-            row = cursor.fetchone()
-        if row is None:
+    def fetchone(self) -> Any:
+        if self._cursor is None or self._cursor.description is None:
             return None
-        return {
-            "trace_id": row[0],
-            "name": row[1],
-            "status": row[2],
-            "started_at": row[3],
-            "ended_at": row[4],
-            "input": loads_json(row[5]),
-            "output": loads_json(row[6]),
-            "error": loads_json(row[7]),
-        }
+        return self._cursor.fetchone()
 
-    def list_events(self, trace_id: str) -> list[JsonObject]:
-        return self._events("where trace_id = %s", (trace_id,), None)
+    def fetchall(self) -> list[Any]:
+        if self._cursor is None or self._cursor.description is None:
+            return []
+        return self._cursor.fetchall()
 
-    def list_all_events(self, limit: int | None = None) -> list[JsonObject]:
-        return self._events("", (), limit)
-
-    def _events(self, where_clause: str, params: tuple[object, ...], limit: int | None) -> list[JsonObject]:
-        limit_clause = "limit %s" if limit is not None else ""
-        resolved_params = (*params, limit) if limit is not None else params
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                f"""
-                select event_id, trace_id, span_id, parent_span_id, timestamp, event_type, actor, payload_json::text
-                from events
-                {where_clause}
-                order by timestamp asc
-                {limit_clause}
-                """,
-                resolved_params,
-            )
-            rows = cursor.fetchall()
-        return [
-            {
-                "event_id": row[0],
-                "trace_id": row[1],
-                "span_id": row[2],
-                "parent_span_id": row[3],
-                "timestamp": row[4],
-                "event_type": row[5],
-                "actor": row[6],
-                "payload": safe_json(loads_json(row[7])),
-            }
-            for row in rows
-        ]
-
-    def save_memory(self, agent: str, namespace: str, key: str, value: JsonValue, trace_id: str | None = None) -> int:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                "select coalesce(max(version), 0) + 1 from memories where agent = %s and namespace = %s and key = %s",
-                (agent, namespace, key),
-            )
-            version = int(cursor.fetchone()[0])
-            now = utc_now()
-            cursor.execute(
-                """
-                insert into memories
-                (agent, namespace, key, value_json, version, trace_id, created_at, updated_at)
-                values (%s, %s, %s, %s::jsonb, %s, %s, %s, %s)
-                """,
-                (agent, namespace, key, dumps_json(value), version, trace_id, now, now),
-            )
-        self._conn.commit()
-        return version
-
-    def get_memory(self, agent: str, namespace: str, key: str, version: int | None = None) -> JsonValue:
-        sql = "select value_json::text from memories where agent = %s and namespace = %s and key = %s"
-        params: tuple[object, ...] = (agent, namespace, key)
-        if version is None:
-            sql += " order by version desc limit 1"
-        else:
-            sql += " and version = %s limit 1"
-            params = (*params, version)
-        with self._conn.cursor() as cursor:
-            cursor.execute(sql, params)
-            row = cursor.fetchone()
-        return loads_json(row[0]) if row else None
-
-    def list_memories(
-        self,
-        agent: str | None = None,
-        namespace: str | None = None,
-        limit: int = 100,
-    ) -> list[JsonObject]:
-        conditions: list[str] = []
-        params: list[object] = []
-        if agent is not None:
-            conditions.append("agent = %s")
-            params.append(agent)
-        if namespace is not None:
-            conditions.append("namespace = %s")
-            params.append(namespace)
-        where = f"where {' and '.join(conditions)}" if conditions else ""
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                f"""
-                select agent, namespace, key, value_json::text, version, trace_id, created_at, updated_at
-                from memories
-                {where}
-                order by updated_at desc, id desc
-                limit %s
-                """,
-                (*params, limit),
-            )
-            rows = cursor.fetchall()
-        return [
-            {
-                "agent": row[0],
-                "namespace": row[1],
-                "key": row[2],
-                "value": loads_json(row[3]),
-                "version": row[4],
-                "trace_id": row[5],
-                "created_at": row[6],
-                "updated_at": row[7],
-            }
-            for row in rows
-        ]
-
-    def list_memory_versions(self, agent: str, namespace: str, key: str) -> list[JsonObject]:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                select version, trace_id, created_at, updated_at, value_json::text
-                from memories
-                where agent = %s and namespace = %s and key = %s
-                order by version asc
-                """,
-                (agent, namespace, key),
-            )
-            rows = cursor.fetchall()
-        return [
-            {"version": row[0], "trace_id": row[1], "created_at": row[2], "updated_at": row[3], "value": loads_json(row[4])}
-            for row in rows
-        ]
-
-    def audit(self, trace_id: str | None, actor: str, action: str, resource: str, payload: JsonObject) -> None:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                insert into audit_logs (trace_id, actor, action, resource, payload_json, timestamp)
-                values (%s, %s, %s, %s, %s::jsonb, %s)
-                """,
-                (trace_id, actor, action, resource, dumps_json(payload), utc_now()),
-            )
-        self._conn.commit()
-
-    def save_prompt_version(
-        self,
-        trace_id: str | None,
-        agent: str,
-        task_id: str | None,
-        system_prompt: str | None,
-        user_prompt: str,
-        metadata: JsonObject | None = None,
-    ) -> str:
-        from agentmesh.types import new_id, stable_hash
-
-        prompt_id = new_id("prompt")
-        prompt_hash = stable_hash(f"{system_prompt or ''}\n{user_prompt}")
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                insert into prompt_versions
-                (prompt_id, trace_id, agent, task_id, prompt_hash, system_prompt, user_prompt, metadata_json, created_at)
-                values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-                """,
-                (prompt_id, trace_id, agent, task_id, prompt_hash, system_prompt, user_prompt, dumps_json(metadata or {}), utc_now()),
-            )
-        self._conn.commit()
-        return prompt_id
-
-    def list_prompt_versions(self, trace_id: str | None = None, limit: int = 100) -> list[JsonObject]:
-        where = "where trace_id = %s" if trace_id else ""
-        params: tuple[object, ...] = (trace_id, limit) if trace_id else (limit,)
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                f"""
-                select prompt_id, trace_id, agent, task_id, prompt_hash, system_prompt, user_prompt, metadata_json::text, created_at
-                from prompt_versions
-                {where}
-                order by created_at desc
-                limit %s
-                """,
-                params,
-            )
-            rows = cursor.fetchall()
-        return [
-            {
-                "prompt_id": row[0],
-                "trace_id": row[1],
-                "agent": row[2],
-                "task_id": row[3],
-                "prompt_hash": row[4],
-                "system_prompt": row[5],
-                "user_prompt": row[6],
-                "metadata": loads_json(row[7]),
-                "created_at": row[8],
-            }
-            for row in rows
-        ]
-
-    def create_approval(self, trace_id: str | None, agent: str, tool: str, arguments: JsonObject) -> str:
-        from agentmesh.types import new_id
-
-        approval_id = new_id("approval")
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                insert into approvals
-                (approval_id, trace_id, agent, tool, arguments_json, status, reason, created_at, resolved_at)
-                values (%s, %s, %s, %s, %s::jsonb, 'pending', null, %s, null)
-                """,
-                (approval_id, trace_id, agent, tool, dumps_json(arguments), utc_now()),
-            )
-        self._conn.commit()
-        return approval_id
-
-    def resolve_approval(self, approval_id: str, approved: bool, reason: str | None = None) -> None:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                update approvals
-                set status = %s, reason = %s, resolved_at = %s
-                where approval_id = %s
-                """,
-                ("approved" if approved else "rejected", reason, utc_now(), approval_id),
-            )
-        self._conn.commit()
-
-    def list_approvals(self, status: str | None = None, limit: int = 100) -> list[JsonObject]:
-        where = "where status = %s" if status else ""
-        params: tuple[object, ...] = (status, limit) if status else (limit,)
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                f"""
-                select approval_id, trace_id, agent, tool, arguments_json::text, status, reason, created_at, resolved_at
-                from approvals
-                {where}
-                order by created_at desc
-                limit %s
-                """,
-                params,
-            )
-            rows = cursor.fetchall()
-        return [
-            {
-                "approval_id": row[0],
-                "trace_id": row[1],
-                "agent": row[2],
-                "tool": row[3],
-                "arguments": loads_json(row[4]),
-                "status": row[5],
-                "reason": row[6],
-                "created_at": row[7],
-                "resolved_at": row[8],
-            }
-            for row in rows
-        ]
-
-    def get_task_result(self, idempotency_key: str) -> JsonValue:
-        with self._conn.cursor() as cursor:
-            cursor.execute("select value_json::text from task_results where idempotency_key = %s", (idempotency_key,))
-            row = cursor.fetchone()
-        return loads_json(row[0]) if row else None
-
-    def save_task_result(self, idempotency_key: str, trace_id: str, task_id: str, value: JsonValue) -> None:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                insert into task_results (idempotency_key, trace_id, task_id, value_json, created_at)
-                values (%s, %s, %s, %s::jsonb, %s)
-                on conflict (idempotency_key) do update
-                set value_json = excluded.value_json
-                """,
-                (idempotency_key, trace_id, task_id, dumps_json(value), utc_now()),
-            )
-        self._conn.commit()
-
-    def list_audit_logs(self, trace_id: str | None = None, limit: int = 100) -> list[JsonObject]:
-        where = "where trace_id = %s" if trace_id else ""
-        params: tuple[object, ...] = (trace_id, limit) if trace_id else (limit,)
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                f"""
-                select trace_id, actor, action, resource, payload_json::text, timestamp
-                from audit_logs
-                {where}
-                order by timestamp desc
-                limit %s
-                """,
-                params,
-            )
-            rows = cursor.fetchall()
-        return [
-            {"trace_id": row[0], "actor": row[1], "action": row[2], "resource": row[3], "payload": loads_json(row[4]), "timestamp": row[5]}
-            for row in rows
-        ]
-
-    def add_document(self, document_id: str, source: str, content: str, metadata: JsonObject, embedding: list[float]) -> None:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                insert into documents (id, source, content, metadata_json, embedding_json, created_at)
-                values (%s, %s, %s, %s::jsonb, %s::jsonb, %s)
-                on conflict (id) do update
-                set source = excluded.source, content = excluded.content,
-                    metadata_json = excluded.metadata_json, embedding_json = excluded.embedding_json
-                """,
-                (document_id, source, content, dumps_json(metadata), dumps_json(embedding), utc_now()),
-            )
-        self._conn.commit()
-
-    def list_documents(self) -> list[JsonObject]:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                select id, source, content, metadata_json::text, embedding_json::text, created_at
-                from documents
-                order by created_at asc
-                """
-            )
-            rows = cursor.fetchall()
-        return [
-            {"id": row[0], "source": row[1], "content": row[2], "metadata": loads_json(row[3]), "embedding": loads_json(row[4]), "created_at": row[5]}
-            for row in rows
-        ]
-
-    def save_checkpoint(
-        self,
-        trace_id: str,
-        checkpoint_type: str,
-        state: JsonValue,
-        step_id: str | None = None,
-        checkpoint_id: str | None = None,
-    ) -> str:
-        from agentmesh.types import new_id
-
-        resolved_id = checkpoint_id or new_id("ckpt")
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                insert into checkpoints (checkpoint_id, trace_id, step_id, checkpoint_type, state_json, created_at)
-                values (%s, %s, %s, %s, %s::jsonb, %s)
-                on conflict (checkpoint_id) do update
-                set state_json = excluded.state_json, checkpoint_type = excluded.checkpoint_type
-                """,
-                (resolved_id, trace_id, step_id, checkpoint_type, dumps_json(state), utc_now()),
-            )
-        self._conn.commit()
-        return resolved_id
-
-    def list_checkpoints(self, trace_id: str) -> list[JsonObject]:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                select checkpoint_id, trace_id, step_id, checkpoint_type, state_json::text, created_at
-                from checkpoints
-                where trace_id = %s
-                order by created_at asc
-                """,
-                (trace_id,),
-            )
-            rows = cursor.fetchall()
-        return [_checkpoint_row(row) for row in rows]
-
-    def get_checkpoint(self, checkpoint_id: str) -> JsonObject | None:
-        with self._conn.cursor() as cursor:
-            cursor.execute(
-                """
-                select checkpoint_id, trace_id, step_id, checkpoint_type, state_json::text, created_at
-                from checkpoints
-                where checkpoint_id = %s
-                """,
-                (checkpoint_id,),
-            )
-            row = cursor.fetchone()
-        return _checkpoint_row(row) if row else None
-
-    def export_trace(self, trace_id: str) -> JsonObject:
-        trace = self.get_trace(trace_id)
-        if trace is None:
-            return {"trace_id": trace_id, "found": False}
-        return {
-            "trace_id": trace_id,
-            "found": True,
-            "trace": trace,
-            "events": self.list_events(trace_id),
-            "checkpoints": self.list_checkpoints(trace_id),
-            "audit_logs": self.list_audit_logs(trace_id),
-            "prompt_versions": self.list_prompt_versions(trace_id),
-        }
-
-    def import_trace(self, payload: JsonObject) -> str:
-        trace_value = payload.get("trace", {})
-        if not isinstance(trace_value, dict):
-            raise ValueError("Trace export payload is missing trace object")
-        trace_id = str(trace_value.get("trace_id") or payload.get("trace_id") or "")
-        if not trace_id:
-            raise ValueError("Trace export payload is missing trace_id")
-        self.create_workflow(trace_id, str(trace_value.get("name", "imported-trace")), trace_value.get("input"))
-        self.finish_workflow(trace_id, str(trace_value.get("status", "imported")), trace_value.get("output"), trace_value.get("error"))
-        with self._conn.cursor() as cursor:
-            for raw_event in payload.get("events", []):
-                if not isinstance(raw_event, dict):
-                    continue
-                cursor.execute(
-                    """
-                    insert into events
-                    (event_id, trace_id, span_id, parent_span_id, timestamp, event_type, actor, payload_json)
-                    values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                    on conflict (event_id) do update set payload_json = excluded.payload_json
-                    """,
-                    (
-                        str(raw_event.get("event_id")),
-                        trace_id,
-                        str(raw_event.get("span_id")),
-                        raw_event.get("parent_span_id") if isinstance(raw_event.get("parent_span_id"), str) else None,
-                        str(raw_event.get("timestamp") or utc_now()),
-                        str(raw_event.get("event_type")),
-                        str(raw_event.get("actor", "import")),
-                        dumps_json(raw_event.get("payload", {})),
-                    ),
-                )
-        self._conn.commit()
-        return trace_id
+    def __iter__(self) -> Any:
+        return iter(self.fetchall())
 
 
-def _checkpoint_row(row: tuple[object, ...]) -> JsonObject:
-    return {
-        "checkpoint_id": str(row[0]),
-        "trace_id": str(row[1]),
-        "step_id": str(row[2]) if row[2] is not None else None,
-        "checkpoint_type": str(row[3]),
-        "state": loads_json(str(row[4])),
-        "created_at": str(row[5]),
-    }
+class Row:
+    """Behaves like ``sqlite3.Row``: index by position or column name, ``keys()``, iteration."""
+
+    __slots__ = ("_names", "_index", "_values")
+
+    def __init__(self, names: list[str], index: dict[str, int], values: list[Any]) -> None:
+        self._names = names
+        self._index = index
+        self._values = values
+
+    def __getitem__(self, key: int | str) -> Any:
+        if isinstance(key, str):
+            return self._values[self._index[key]]
+        return self._values[key]
+
+    def keys(self) -> list[str]:
+        return list(self._names)
+
+    def __iter__(self) -> Any:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __repr__(self) -> str:
+        return f"Row({dict(zip(self._names, self._values, strict=True))!r})"
+
+
+def _row_factory(cursor: Any) -> Any:
+    names = [column.name for column in cursor.description or []]
+    index: dict[str, int] = {}
+    for position, name in enumerate(names):
+        index.setdefault(name, position)
+        index.setdefault(name.lower(), position)
+
+    def make_row(values: Any) -> Row:
+        return Row(names, index, [_convert(value) for value in values])
+
+    return make_row
+
+
+def _convert(value: Any) -> Any:
+    if isinstance(value, Decimal):  # sum()/avg() over bigint columns return numeric
+        return int(value) if value == value.to_integral_value() else float(value)
+    return value
+
+
+def _adapt(value: Any) -> Any:
+    if isinstance(value, bool):  # SQLite stores booleans in integer columns
+        return int(value)
+    return value
+
+
+def _translate_code(code: str, is_ddl: bool) -> str:
+    code = code.replace("%", "%%").replace("?", "%s")
+    code = re.sub(r"\blike\b", "ilike", code, flags=re.IGNORECASE)
+    code = re.sub(r"\browid\b", "ctid", code, flags=re.IGNORECASE)
+    if is_ddl:
+        code = _FOREIGN_KEY.sub("", code)
+        code = _REFERENCES.sub("", code)
+        code = re.sub(r"\binteger\s+primary\s+key\s+autoincrement\b", "bigserial primary key", code, flags=re.IGNORECASE)
+        code = re.sub(r"\binteger\b", "bigint", code, flags=re.IGNORECASE)
+        code = re.sub(r"\breal\b", "double precision", code, flags=re.IGNORECASE)
+    return code
+
+
+# Tables created by the pre-0.4 PostgreSQL store. Only these are upgraded: the database may hold other
+# applications' tables, which must never be altered.
+_LEGACY_TABLES = ("workflows", "events", "memories", "audit_logs", "documents", "checkpoints", "prompt_versions", "approvals", "task_results")
+
+
+def _upgrade_legacy_schema(conn: PostgresConnection) -> None:
+    """Convert databases created by the pre-0.4 PostgreSQL store (jsonb columns, enforced foreign keys)."""
+    raw = conn._raw
+    jsonb_columns = raw.execute(
+        "select table_name, column_name from information_schema.columns "
+        "where table_schema = current_schema() and data_type = 'jsonb' and table_name = any(%s)",
+        (list(_LEGACY_TABLES),),
+    ).fetchall()
+    foreign_keys = raw.execute(
+        "select table_name, constraint_name from information_schema.table_constraints "
+        "where table_schema = current_schema() and constraint_type = 'FOREIGN KEY' and table_name in ('events', 'checkpoints')"
+    ).fetchall()
+    if not jsonb_columns and not foreign_keys:
+        return
+    with raw.transaction():
+        for table, constraint in foreign_keys:
+            raw.execute(f'alter table "{table}" drop constraint "{constraint}"')
+        for table, column in jsonb_columns:
+            raw.execute(f'alter table "{table}" alter column "{column}" type text using "{column}"::text')

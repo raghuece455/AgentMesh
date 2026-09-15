@@ -6,7 +6,34 @@ This roadmap reflects the current plan. Community feedback shapes priorities —
 
 ---
 
-## Released: v0.3.0-alpha (current)
+## Released: v0.4.0 (current) — Observe any agent
+
+- OTLP/HTTP trace receiver with OpenTelemetry GenAI semantic-convention, OpenInference, OpenLLMetry and Vercel AI SDK mapping.
+- Python tracing SDK (`@observe`, `trace`, `span`, `score`) and OpenAI/Anthropic client auto-instrumentation.
+- Sessions, users, tags, scores and dashboard feedback.
+- Automatic trace insights: root cause, loops, repeated prompts, context growth, cache usage, hotspots.
+- MCP server so coding agents can query and diagnose traces.
+- Per-million-token pricing with cache rates, current model prices, and community price sync.
+- Retention pruning and content-capture controls.
+- TypeScript SDK (`agentmesh-sdk`) with OpenAI/Anthropic auto-instrumentation and experiments.
+- Datasets (from traces, JSONL, or by hand), experiments, item-by-item comparison, and CI gating.
+- Built-in evaluators and LLM-as-judge; online evaluation of recorded traces.
+- Alerts for failure rate/count, spend, expensive traces, p95 latency, and tool loops, with Slack, Discord, and signed webhooks.
+- PostgreSQL storage for every feature.
+
+## Next: v0.5 — Scale and depth
+
+- **OTLP logs** — ingest GenAI content events sent as OTel log records (e.g. Claude Code telemetry).
+- **gRPC OTLP receiver** — accept the Collector's default protocol without a relay.
+- **ClickHouse backend** — for very high span volumes and long retention.
+- **Scheduled online evaluation** — run evaluators on new traces from the server, with sampling.
+- **More auto-instrumentation** — Gemini, Bedrock, Mistral, and LiteLLM clients in both SDKs.
+- **Prompt management** — versioned prompts linked to the experiments that tested them.
+- **Login and RBAC** — per-user accounts and project-level access control.
+
+---
+
+## Released: v0.3.0-alpha
 
 - Trace-first execution with SQLite and PostgreSQL persistence.
 - Full React dashboard: trace explorer, workflow graph, cost center, tool inspector, memory & RAG, replay studio, failure inbox, provider health.
@@ -21,27 +48,26 @@ This roadmap reflects the current plan. Community feedback shapes priorities —
 
 ---
 
-## v0.4 — Integration & Extensibility
+## Later — Integration & Extensibility
 
 Focus: make AgentMesh easier to drop into existing stacks.
 
 - **MCP client transports** — stdio and streamable HTTP client for Model Context Protocol servers.
 - **Plugin discovery** — Python entry points (`agentmesh.plugins`) for community-installable providers, tools, and evaluators.
-- **Prompt regression snapshots** — diff prompt versions across runs; alert on regression.
+- **Prompt regression snapshots** — diff prompt versions across runs.
 - **Dashboard run diff** — side-by-side trace comparison UI.
 - **More provider adapters** — AWS Bedrock, Groq, Mistral, Cohere.
 
 ---
 
-## v0.5 — Scale & Reliability
+## Later — Scale & Reliability
 
 Focus: make AgentMesh viable for teams and higher-throughput workflows.
 
 - **Distributed workers** — Redis or NATS coordination for multi-process agent execution.
 - **PostgreSQL background job queue** — persistent task scheduling backed by PostgreSQL.
-- **Evaluator result dashboards** — built-in UI for eval suites and metric trends.
+- **Evaluator trend dashboards** — score trends per evaluator over time.
 - **Visual workflow editor** — drag-and-drop workflow builder in the dashboard.
-- **Cost alerting** — notifications when spend exceeds budget thresholds.
 
 ---
 
@@ -66,7 +92,7 @@ These are tracked but not yet scheduled:
 - LangChain / LlamaIndex / AutoGen adapter layers.
 - Streaming trace updates via WebSocket for long-running workflows.
 - Prompt playground with A/B testing.
-- Multi-language SDK (TypeScript first).
+- More language SDKs (Go, Java).
 
 ---
 
