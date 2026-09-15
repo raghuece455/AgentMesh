@@ -1,6 +1,6 @@
 # Security Policy
 
-AgentMesh is `v0.4.1` — an alpha for local development, evaluation, and single-team self-hosting. It is not yet a hardened multi-tenant platform.
+AgentMesh is `v0.4.2` — an alpha for local development, evaluation, and single-team self-hosting. It is not yet a hardened multi-tenant platform.
 
 ---
 

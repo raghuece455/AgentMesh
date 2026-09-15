@@ -6,7 +6,7 @@ This roadmap reflects the current plan. Community feedback shapes priorities —
 
 ---
 
-## Released: v0.4 (current: 0.4.1) — Observe any agent
+## Released: v0.4 (current: 0.4.2) — Observe any agent
 
 - OTLP/HTTP trace receiver with OpenTelemetry GenAI semantic-convention, OpenInference, OpenLLMetry and Vercel AI SDK mapping.
 - Python tracing SDK (`@observe`, `trace`, `span`, `score`) and OpenAI/Anthropic client auto-instrumentation.

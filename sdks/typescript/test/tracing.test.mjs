@@ -236,5 +236,5 @@ test("CommonJS build exposes the same API", async () => {
   const cjs = require("../dist/cjs/index.js");
   assert.equal(typeof cjs.trace, "function");
   assert.equal(typeof cjs.instrumentOpenAI, "function");
-  assert.equal(cjs.VERSION, "0.4.1");
+  assert.equal(cjs.VERSION, "0.4.2");
 });

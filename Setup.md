@@ -2,7 +2,7 @@
 
 This guide walks a new user from a fresh clone to a running AgentMesh dashboard, real workflow traces, provider configuration, and custom agent setup.
 
-AgentMesh is currently `v0.4.1`. It is an alpha for local development, evaluation, and single-team self-hosting, not a production v1.0 control plane.
+AgentMesh is currently `v0.4.2`. It is an alpha for local development, evaluation, and single-team self-hosting, not a production v1.0 control plane.
 
 > **Already have an agent?** You don't need the AgentMesh runtime to use the dashboard. See [docs/integrations.md](docs/integrations.md) to send traces from any OpenTelemetry-instrumented framework, or [docs/sdk.md](docs/sdk.md) to trace plain Python code.
 
