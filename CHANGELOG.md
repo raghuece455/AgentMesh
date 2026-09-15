@@ -6,6 +6,14 @@ All notable changes to AgentMesh are documented here. AgentMesh follows [Semanti
 
 ## [Unreleased]
 
+Nothing yet.
+
+---
+
+## [0.4.2] — 2026-09-15
+
+The redesigned dashboard. No changes to the Python tracing API or the TypeScript SDK code; `agentmesh-sdk` 0.4.2 is published to keep the versions aligned.
+
 ### Changed
 - **Redesigned dashboard.** A new app shell with a grouped, collapsible sidebar (with firing-alert and pending-approval badges), breadcrumbs, a global time range and data scope, a live-stream indicator, and a Ctrl/⌘ K command palette for pages, traces, and sessions. Light, dark, and system themes, saved per browser and applied before first paint.
 - **Overview** now shows KPI cards with sparklines, trace volume and latency charts for the selected range, failures grouped into issues (count, wasted spend, last seen), spend by model, recent traces, provider health, and live activity.
