@@ -2,7 +2,9 @@
 
 This guide walks a new user from a fresh clone to a running AgentMesh dashboard, real workflow traces, provider configuration, and custom agent setup.
 
-AgentMesh is currently `v0.3.0-alpha`. It is a public alpha for local development and evaluation, not a production v1.0 control plane.
+AgentMesh is currently `v0.4.0`. It is an alpha for local development, evaluation, and single-team self-hosting, not a production v1.0 control plane.
+
+> **Already have an agent?** You don't need the AgentMesh runtime to use the dashboard. See [docs/integrations.md](docs/integrations.md) to send traces from any OpenTelemetry-instrumented framework, or [docs/sdk.md](docs/sdk.md) to trace plain Python code.
 
 ## 1. What You Get
 
@@ -279,7 +281,7 @@ store = SQLiteStore(".agentmesh/my-local.db")
 
 ### PostgreSQL
 
-PostgreSQL support exists as an adapter, but the alpha dashboard is most heavily exercised with SQLite.
+PostgreSQL (14+) supports every feature, and the test suite runs against both databases. Use it when several people or services share one AgentMesh server.
 
 Install optional dependencies:
 
@@ -1000,33 +1002,36 @@ npm ci
 npm run build
 ```
 
-## 21. Public Alpha Notes
+## 21. Alpha Notes
 
-Implemented in `v0.3.0-alpha`:
+Implemented in `v0.4.0`:
 
-- Local SQLite observability persistence.
-- Trace-first dashboard.
-- Demo seed data.
-- Real example workflows.
-- API and CLI trace export.
-- OpenTelemetry-compatible JSON export.
-- API-key-ready mode.
+- OTLP/HTTP trace ingestion (`POST /v1/traces`) for any OpenTelemetry-instrumented framework.
+- Python tracing SDK and OpenAI/Anthropic client auto-instrumentation.
+- Sessions, users, tags, scores, and dashboard feedback.
+- Automatic trace insights (root cause, loops, context growth, cache usage, hotspots).
+- MCP server for coding agents.
+- SQLite or PostgreSQL persistence for every feature, and the trace-first dashboard.
+- TypeScript SDK (`agentmesh-sdk`), datasets and experiments with LLM-as-judge evaluators, and alerts.
+- Demo seed data and real example workflows.
+- API and CLI trace export, OpenTelemetry-compatible JSON export.
+- API-key auth for the API, UI, live stream, and ingestion.
 - Deterministic replay basics.
-- Mocked provider tests.
 
 Partial or planned:
 
-- Full OTLP collector push.
-- Advanced RBAC and user authentication.
-- Distributed workers.
-- Hosted deployment.
+- OTLP push *from* the AgentMesh runtime to an external collector.
+- User login, RBAC, and workspace isolation.
+- Distributed workers and hosted deployment.
 - Advanced live replay with provider/model overrides.
-- Full enterprise governance.
 
 For more detail, see:
 
 - `README.md` — project overview and quickstart
 - `HOW_IT_WORKS.md` — architecture diagrams and deep-dive explanations
+- `docs/integrations.md` — trace agents built with any framework
+- `docs/sdk.md` — Python tracing SDK
+- `docs/mcp.md` — MCP server
 - `docs/concepts.md` — core vocabulary
 - `docs/dashboard.md` — all dashboard pages explained
 - `docs/model-providers.md` — provider configuration

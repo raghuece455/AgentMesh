@@ -5,6 +5,7 @@ import enum
 import hashlib
 import json
 import re
+import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypeAlias
@@ -55,8 +56,9 @@ def utc_now() -> str:
 
 
 def new_id(prefix: str) -> str:
-    digest = hashlib.sha256(f"{prefix}:{utc_now()}".encode("utf-8")).hexdigest()[:16]
-    return f"{prefix}_{digest}"
+    # Random rather than time-derived: IDs minted in the same clock tick (common
+    # with coarse clocks or concurrent threads) must never collide.
+    return f"{prefix}_{secrets.token_hex(8)}"
 
 
 def stable_hash(value: str) -> str:

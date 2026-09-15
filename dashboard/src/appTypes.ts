@@ -5,7 +5,9 @@ import type {
   CostCenterSummary,
   EvaluationRecord,
   EvaluationSummary,
+  IntegrationInfo,
   JsonRecord,
+  SessionSummary,
   MemoryOperation,
   MemoryRecord,
   ModelCallRecord,
@@ -23,6 +25,10 @@ import type {
 export type Section =
   | 'overview'
   | 'traces'
+  | 'sessions'
+  | 'datasets'
+  | 'alerts'
+  | 'connect'
   | 'workflows'
   | 'agents'
   | 'models'
@@ -60,6 +66,8 @@ export interface DashboardData {
   approvals: ApprovalRecord[]
   checkpoints: Checkpoint[]
   auditLogs: JsonRecord[]
+  sessions: SessionSummary[]
+  integrations: IntegrationInfo | null
 }
 
 export type LiveStatus = 'connecting' | 'connected' | 'disconnected'
@@ -106,4 +114,6 @@ export const emptyData: DashboardData = {
   approvals: [],
   checkpoints: [],
   auditLogs: [],
+  sessions: [],
+  integrations: null,
 }

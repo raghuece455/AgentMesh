@@ -105,7 +105,8 @@ for p in prompts:
 | Feature | Status |
 |---|---|
 | Prompt versioning and registry (current) | ✅ Implemented |
-| Rollback to a previous prompt version | Planned — v0.4 |
-| Saved-input prompt testing (replay a prompt with new inputs) | Planned — v0.4 |
-| Side-by-side prompt diff with quality and cost deltas | Planned — v0.5 |
-| Prompt template library | Planned — v0.5 |
+| Prompt name/version on ingested spans (`gen_ai.prompt.name`, `gen_ai.prompt.version`) | ✅ Implemented (v0.4) |
+| Rollback to a previous prompt version | Planned — v0.5 |
+| Saved-input prompt testing (replay a prompt with new inputs) | Planned — v0.5 |
+| Side-by-side prompt diff with quality and cost deltas | Planned |
+| Prompt template library | Planned |

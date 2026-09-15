@@ -9,7 +9,8 @@
 - [ ] Documentation update
 - [ ] Refactor / cleanup
 - [ ] Provider adapter
-- [ ] Dashboard change
+- [ ] Integration / ingestion mapping (OTel, SDK, client instrumentation)
+- [ ] Dashboard change (rebuilt `dashboard/dist` and, if visible, screenshots)
 
 ## Verification
 

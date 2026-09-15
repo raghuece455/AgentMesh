@@ -24,6 +24,13 @@ export interface TraceSummary {
   tool_call_count?: number
   max_latency_ms?: number
   span_count?: number
+  session_id?: string | null
+  user_id?: string | null
+  tags?: string[]
+  source?: string | null
+  service_name?: string | null
+  input?: unknown
+  output?: unknown
 }
 
 export interface TraceEvent {
@@ -74,9 +81,71 @@ export interface SpanRecord {
   memory_operation?: string | null
   rag_document_ids?: string[]
   metadata?: unknown
+  name?: string | null
+  span_kind?: string | null
+}
+
+export interface ScoreRecord {
+  score_id: string
+  trace_id: string
+  span_id?: string | null
+  name: string
+  value?: number | null
+  label?: string | null
+  comment?: string | null
+  passed?: boolean | null
+  source?: string | null
+  created_at: string
+}
+
+export interface InsightFinding {
+  kind: string
+  severity: 'high' | 'warning' | 'info' | string
+  message: string
+  span_id?: string | null
+  path?: string[]
+}
+
+export interface TraceInsights {
+  trace_id: string
+  found: boolean
+  summary?: string
+  findings: InsightFinding[]
+  stats?: Record<string, unknown>
+  slowest_spans?: Array<{ span_id: string; label: string; duration_ms: number; self_time_ms: number; share_of_trace: number | null }>
+  costliest_calls?: Array<{ span_id: string; model: string | null; agent: string | null; estimated_cost: number }>
+}
+
+export interface SessionSummary {
+  session_id: string
+  trace_count: number
+  started_at: string
+  last_activity_at: string
+  failed_traces: number
+  running_traces?: number
+  user_id?: string | null
+  estimated_cost: number
+  total_tokens: number
+  total_duration_ms?: number
+}
+
+export interface SessionDetail extends SessionSummary {
+  traces: TraceSummary[]
+  scores: ScoreRecord[]
+}
+
+export interface IntegrationInfo {
+  version: string
+  otlp_traces_endpoint: string
+  otlp_base_endpoint: string
+  protobuf_supported: boolean
+  auth_mode: string
+  capture_content: string
 }
 
 export interface TraceDetail {
+  scores?: ScoreRecord[]
+  insights?: TraceInsights | null
   trace: TraceSummary | null
   spans: SpanRecord[]
   events: TraceEvent[]
@@ -445,6 +514,137 @@ export interface OverviewData {
 
 export interface TimeseriesData {
   points: Array<{ bucket: string; runs: number; cost: number; tokens: number; failures: number; latency: number }>
+}
+
+export interface DatasetSummary {
+  dataset_id: string
+  name: string
+  description?: string | null
+  created_at: string
+  updated_at: string
+  metadata: JsonRecord
+  item_count: number
+  experiment_count: number
+  last_experiment_at?: string | null
+}
+
+export interface DatasetItem {
+  item_id: string
+  dataset_id: string
+  input: unknown
+  expected?: unknown
+  metadata: JsonRecord
+  source_trace_id?: string | null
+  source_span_id?: string | null
+  created_at: string
+}
+
+export interface DatasetDetail extends DatasetSummary {
+  items: DatasetItem[]
+}
+
+export interface EvaluatorScore {
+  name: string
+  score?: number | null
+  passed?: boolean | null
+  label?: string | null
+  comment?: string | null
+}
+
+export interface ScoreStats {
+  mean: number | null
+  min: number | null
+  max: number | null
+  count: number
+  pass_rate: number | null
+}
+
+export interface ExperimentSummary {
+  experiment_id: string
+  dataset_id?: string | null
+  dataset_name?: string | null
+  name: string
+  description?: string | null
+  status: string
+  started_at: string
+  ended_at?: string | null
+  evaluators: string[]
+  summary: { items: number; errors: number; error_rate: number; avg_latency_ms: number | null; scores: Record<string, ScoreStats> }
+  metadata: JsonRecord
+  total_cost: number
+  total_tokens: number
+}
+
+export interface ExperimentResultRow {
+  result_id: string
+  item_id: string
+  trace_id?: string | null
+  status: string
+  input: unknown
+  expected?: unknown
+  output?: unknown
+  error?: string | null
+  duration_ms?: number | null
+  scores: EvaluatorScore[]
+  estimated_cost?: number
+  total_tokens?: number
+}
+
+export interface ExperimentDetail extends ExperimentSummary {
+  results: ExperimentResultRow[]
+}
+
+export type ComparedResult = Pick<ExperimentResultRow, 'status' | 'output' | 'error' | 'trace_id' | 'duration_ms' | 'estimated_cost' | 'scores'>
+
+export interface ExperimentComparison {
+  base: ExperimentSummary
+  candidate: ExperimentSummary
+  score_deltas: Record<string, { base: number | null; candidate: number | null; delta: number | null }>
+  cost_delta: number
+  latency_delta_ms: number | null
+  counts: { improved: number; regressed: number; unchanged: number; added: number; removed: number }
+  items: Array<{
+    item_id: string
+    input: unknown
+    expected?: unknown
+    change: 'improved' | 'regressed' | 'unchanged' | 'added' | 'removed'
+    base: ComparedResult | null
+    candidate: ComparedResult | null
+  }>
+}
+
+export interface AlertRule {
+  rule_id: string
+  name: string
+  kind: string
+  description?: string | null
+  threshold: number
+  window_minutes: number
+  cooldown_minutes: number
+  filters: JsonRecord
+  channel: { type: string; url?: string | null; format: string; secret?: string | null; notify_resolved?: boolean }
+  enabled: boolean
+  state: string
+  last_value?: number | null
+  last_evaluated_at?: string | null
+  last_triggered_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AlertEvent {
+  alert_id: string
+  rule_id: string
+  rule_name: string
+  kind: string
+  status: string
+  value?: number | null
+  threshold?: number | null
+  message: string
+  details: JsonRecord
+  delivered: boolean
+  delivery_error?: string | null
+  created_at: string
 }
 
 export interface ReplayRun {

@@ -46,7 +46,7 @@ function SpanNode({
         onClick={() => onSelect(span)}
       >
         <span className="min-w-0">
-          <span className="block truncate text-sm/6 font-semibold text-white">{span.event_type}</span>
+          <span className="block truncate text-sm/6 font-semibold text-white">{span.name ?? span.event_type}</span>
           <span className="block truncate text-xs/5 text-white/52">{span.agent_name ?? span.workflow_name ?? 'workflow'} / {shortId(span.span_id)}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5">

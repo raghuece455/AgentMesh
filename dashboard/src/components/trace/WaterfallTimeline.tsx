@@ -21,7 +21,7 @@ export function WaterfallTimeline({ spans, onSelect }: { spans: SpanRecord[]; on
         return (
           <button key={span.span_id} className="grid grid-cols-[190px_1fr_78px] items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/22 px-3 py-2 text-left transition hover:border-sky-200/28 hover:bg-sky-300/10" onClick={() => onSelect(span)}>
             <div className="min-w-0">
-              <div className="truncate text-sm/6 font-semibold text-white">{span.event_type}</div>
+              <div className="truncate text-sm/6 font-semibold text-white">{span.name ?? span.event_type}</div>
               <div className="truncate text-xs/5 text-white/52">{span.agent_name ?? 'workflow'}</div>
             </div>
             <div className="relative h-3 rounded-full bg-white/10">

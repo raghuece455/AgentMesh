@@ -5,9 +5,19 @@ import type {
   CompareResult,
   CostCenterSummary,
   CostSummary,
+  AlertEvent,
+  AlertRule,
+  DatasetDetail,
+  DatasetSummary,
   EvaluationRecord,
+  ExperimentComparison,
+  ExperimentDetail,
+  ExperimentSummary,
   EvaluationSummary,
+  IntegrationInfo,
   JsonRecord,
+  SessionDetail,
+  SessionSummary,
   MemoryOperation,
   MemoryRecord,
   ModelCallRecord,
@@ -29,21 +39,68 @@ import type {
   WorkflowSummary,
 } from './types'
 
+const API_KEY_STORAGE = 'agentmesh.apiKey'
+
+/** API key for servers running with AGENTMESH_AUTH_MODE=api_key, kept in this browser only. */
+export function getApiKey(): string {
+  try {
+    return window.localStorage.getItem(API_KEY_STORAGE) ?? ''
+  }
+  catch {
+    return ''
+  }
+}
+
+export function setApiKey(key: string): void {
+  try {
+    if (key)
+      window.localStorage.setItem(API_KEY_STORAGE, key)
+    else
+      window.localStorage.removeItem(API_KEY_STORAGE)
+  }
+  catch {
+    // Storage can be unavailable (private mode, blocked site data); the key then lasts for this page only.
+  }
+}
+
+function authHeaders(): Record<string, string> {
+  const key = getApiKey()
+  return key ? { Authorization: `Bearer ${key}` } : {}
+}
+
+export function isUnauthorizedError(message: string): boolean {
+  return /failed with 401\b/.test(message)
+}
+
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path)
+  const response = await fetch(path, { headers: authHeaders() })
   if (!response.ok)
     throw new Error(`GET ${path} failed with ${response.status}`)
   return response.json() as Promise<T>
 }
 
 async function postJson<T>(path: string, payload?: unknown): Promise<T> {
+  return sendJson<T>('POST', path, payload)
+}
+
+/** Write request; errors carry the server's validation message so forms can show it. */
+async function sendJson<T>(method: 'POST' | 'PATCH' | 'DELETE', path: string, payload?: unknown): Promise<T> {
   const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload ?? {}),
+    method,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: method === 'DELETE' ? undefined : JSON.stringify(payload ?? {}),
   })
-  if (!response.ok)
-    throw new Error(`POST ${path} failed with ${response.status}`)
+  if (!response.ok) {
+    let detail = ''
+    try {
+      const body = await response.json() as { detail?: { message?: string } | string; message?: string }
+      detail = typeof body.detail === 'string' ? body.detail : body.detail?.message ?? body.message ?? ''
+    }
+    catch {
+      detail = ''
+    }
+    throw new Error(`${method} ${path} failed with ${response.status}${detail ? `: ${detail}` : ''}`)
+  }
   return response.json() as Promise<T>
 }
 
@@ -205,4 +262,143 @@ export function runEvaluation(payload: JsonRecord): Promise<JsonRecord> {
 
 export function listAuditLogs(): Promise<JsonRecord[]> {
   return getJson<JsonRecord[]>('/api/audit-logs')
+}
+
+export function listSessions(): Promise<SessionSummary[]> {
+  return getJson<SessionSummary[]>('/api/sessions')
+}
+
+export function getSession(sessionId: string): Promise<SessionDetail> {
+  return getJson<SessionDetail>(`/api/sessions/${encodeURIComponent(sessionId)}`)
+}
+
+export function createScore(payload: { trace_id: string; name: string; value: number | boolean | string; comment?: string; span_id?: string; source?: string }): Promise<JsonRecord> {
+  return postJson<JsonRecord>('/api/scores', payload)
+}
+
+export function listDatasets(): Promise<DatasetSummary[]> {
+  return getJson<DatasetSummary[]>('/api/datasets')
+}
+
+export function getDataset(dataset: string): Promise<DatasetDetail> {
+  return getJson<DatasetDetail>(`/api/datasets/${encodeURIComponent(dataset)}`)
+}
+
+export function createDataset(payload: { name: string; description?: string }): Promise<DatasetSummary> {
+  return postJson<DatasetSummary>('/api/datasets', payload)
+}
+
+export function deleteDataset(dataset: string): Promise<JsonRecord> {
+  return sendJson<JsonRecord>('DELETE', `/api/datasets/${encodeURIComponent(dataset)}`)
+}
+
+export function addDatasetItems(dataset: string, items: Array<{ input: unknown; expected?: unknown; metadata?: JsonRecord }>): Promise<JsonRecord> {
+  return postJson<JsonRecord>(`/api/datasets/${encodeURIComponent(dataset)}/items`, { items })
+}
+
+export function addTraceToDataset(dataset: string, payload: { trace_id: string; span_id?: string; use_trace_output: boolean }): Promise<JsonRecord> {
+  return postJson<JsonRecord>(`/api/datasets/${encodeURIComponent(dataset)}/items`, payload)
+}
+
+export function deleteDatasetItem(dataset: string, itemId: string): Promise<JsonRecord> {
+  return sendJson<JsonRecord>('DELETE', `/api/datasets/${encodeURIComponent(dataset)}/items/${encodeURIComponent(itemId)}`)
+}
+
+export function listExperiments(dataset?: string): Promise<ExperimentSummary[]> {
+  return getJson<ExperimentSummary[]>(`/api/experiments${dataset ? `?dataset=${encodeURIComponent(dataset)}` : ''}`)
+}
+
+export function getExperiment(experimentId: string): Promise<ExperimentDetail> {
+  return getJson<ExperimentDetail>(`/api/experiments/${encodeURIComponent(experimentId)}`)
+}
+
+export function compareExperiments(base: string, candidate: string): Promise<ExperimentComparison> {
+  return getJson<ExperimentComparison>(`/api/experiments/compare?base=${encodeURIComponent(base)}&candidate=${encodeURIComponent(candidate)}`)
+}
+
+export function deleteExperiment(experimentId: string): Promise<JsonRecord> {
+  return sendJson<JsonRecord>('DELETE', `/api/experiments/${encodeURIComponent(experimentId)}`)
+}
+
+export function listAlertRules(): Promise<AlertRule[]> {
+  return getJson<AlertRule[]>('/api/alerts/rules')
+}
+
+export function getAlertKinds(): Promise<{ kinds: Record<string, string>; check_interval_seconds: number }> {
+  return getJson('/api/alerts/kinds')
+}
+
+export function createAlertRule(payload: JsonRecord): Promise<AlertRule> {
+  return postJson<AlertRule>('/api/alerts/rules', payload)
+}
+
+export function updateAlertRule(rule: string, payload: JsonRecord): Promise<AlertRule> {
+  return sendJson<AlertRule>('PATCH', `/api/alerts/rules/${encodeURIComponent(rule)}`, payload)
+}
+
+export function deleteAlertRule(rule: string): Promise<JsonRecord> {
+  return sendJson<JsonRecord>('DELETE', `/api/alerts/rules/${encodeURIComponent(rule)}`)
+}
+
+export function testAlertRule(rule: string): Promise<{ delivered: boolean; error?: string | null }> {
+  return postJson(`/api/alerts/rules/${encodeURIComponent(rule)}/test`)
+}
+
+export function checkAlerts(): Promise<{ fired: AlertEvent[] }> {
+  return postJson('/api/alerts/check')
+}
+
+export function listAlertEvents(limit = 50): Promise<AlertEvent[]> {
+  return getJson<AlertEvent[]>(`/api/alerts/events?limit=${limit}`)
+}
+
+export function getIntegrations(): Promise<IntegrationInfo> {
+  return getJson<IntegrationInfo>('/api/integrations')
+}
+
+/**
+ * Subscribe to the server-sent live event stream. Uses fetch instead of EventSource so the
+ * API key header can be sent. Returns a function that closes the stream.
+ */
+export function subscribeLiveEvents(handlers: { onOpen: () => void; onEvent: (type: string, data: string) => void; onError: () => void }): () => void {
+  const controller = new AbortController()
+  void (async () => {
+    try {
+      const response = await fetch('/api/events/live', { headers: { Accept: 'text/event-stream', ...authHeaders() }, signal: controller.signal })
+      if (!response.ok || !response.body)
+        throw new Error(`GET /api/events/live failed with ${response.status}`)
+      handlers.onOpen()
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
+      let buffer = ''
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done)
+          break
+        buffer += value.replace(/\r\n/g, '\n')
+        let boundary = buffer.indexOf('\n\n')
+        while (boundary !== -1) {
+          const block = buffer.slice(0, boundary)
+          buffer = buffer.slice(boundary + 2)
+          let type = 'message'
+          const data: string[] = []
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event:'))
+              type = line.slice(6).trim()
+            else if (line.startsWith('data:'))
+              data.push(line.slice(5).trimStart())
+          }
+          if (data.length)
+            handlers.onEvent(type, data.join('\n'))
+          boundary = buffer.indexOf('\n\n')
+        }
+      }
+      if (!controller.signal.aborted)
+        handlers.onError()
+    }
+    catch {
+      if (!controller.signal.aborted)
+        handlers.onError()
+    }
+  })()
+  return () => controller.abort()
 }

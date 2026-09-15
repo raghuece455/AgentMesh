@@ -42,7 +42,7 @@ SQLite is the default:
 from agentmesh import SQLiteStore
 ```
 
-PostgreSQL is available through:
+PostgreSQL stores everything SQLite does (ingested spans, sessions, scores, datasets, experiments, alerts, and runtime state):
 
 ```bash
 pip install -e ".[postgres]"

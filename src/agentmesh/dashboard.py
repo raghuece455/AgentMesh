@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
+# Imported at module level: with ``from __future__ import annotations`` FastAPI
+# resolves endpoint annotations from module globals, so these must live here.
+from fastapi import BackgroundTasks, Request, WebSocket
 from pydantic import BaseModel
 
 from agentmesh.errors import AgentMeshError
@@ -18,6 +23,44 @@ from agentmesh.types import safe_json
 class ResolveApprovalRequest(BaseModel):
     approved: bool
     reason: str | None = None
+
+
+class ScoreRequest(BaseModel):
+    trace_id: str
+    name: str
+    value: float | bool | str | None = None
+    span_id: str | None = None
+    label: str | None = None
+    comment: str | None = None
+    source: str = "api"
+    passed: bool | None = None
+    metadata: dict[str, object] | None = None
+
+
+class DatasetRequest(BaseModel):
+    name: str
+    description: str | None = None
+    metadata: dict[str, object] | None = None
+
+
+class DatasetItemsRequest(BaseModel):
+    items: list[dict[str, object]] | None = None
+    trace_id: str | None = None
+    span_id: str | None = None
+    expected: object | None = None
+    use_trace_output: bool = True
+    metadata: dict[str, object] | None = None
+
+
+class AlertRuleRequest(BaseModel):
+    name: str | None = None
+    kind: str | None = None
+    threshold: float | None = None
+    window: str | int | None = None
+    cooldown: str | int | None = None
+    filters: dict[str, object] | None = None
+    channel: dict[str, object] | None = None
+    enabled: bool | None = None
 
 
 DASHBOARD_HTML = """
@@ -102,28 +145,73 @@ DASHBOARD_HTML = """
 """
 
 
+def dashboard_dist_dir() -> Path | None:
+    """Locate the built React dashboard, or ``None`` to use the minimal fallback page.
+
+    Checked in order: ``AGENTMESH_DASHBOARD_DIR``; ``dashboard/dist`` in a source
+    checkout (editable installs, Docker); the copy bundled into the wheel by setup.py.
+    """
+    package_dir = Path(__file__).resolve().parent
+    candidates = [package_dir.parents[1] / "dashboard" / "dist", package_dir / "dashboard_dist"]
+    override = os.getenv("AGENTMESH_DASHBOARD_DIR")
+    if override:
+        candidates.insert(0, Path(override))
+    return next((candidate for candidate in candidates if (candidate / "index.html").is_file()), None)
+
+
 def create_app(db_path: str | Path | None = None):
-    from fastapi import BackgroundTasks, Body, Depends, FastAPI, Header, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
+    from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Response, WebSocketDisconnect
     from fastapi.responses import HTMLResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
 
+    from agentmesh import __version__
+    from agentmesh.alerts import ALERT_KINDS, AlertScheduler, scheduler_interval
+    from agentmesh.analysis import trace_insights
+    from agentmesh.otlp import (
+        OTLPDecodeError,
+        OTLPPayloadTooLarge,
+        ProtobufUnavailable,
+        decode_request,
+        max_request_bytes,
+        protobuf_available,
+    )
+    from agentmesh.pricing import list_pricing_rules, pricing_for
+
     settings = AgentMeshSettings.from_env()
     resolved_db = str(db_path or settings.db_url)
+
+    @asynccontextmanager
+    async def lifespan(_app: object):
+        scheduler = AlertScheduler(store, scheduler_interval())
+        scheduler.start()
+        try:
+            yield
+        finally:
+            scheduler.stop()
+
     app = FastAPI(
+        lifespan=lifespan,
         title="AgentMesh API",
-        version="0.3.0-alpha",
-        description="Observable multi-agent runtime APIs for traces, replay, memory, approvals, metrics, and dashboard data.",
+        version=__version__,
+        description=(
+            "Open-source observability for AI agents: OTLP trace ingestion, traces, sessions, scores, replay, "
+            "costs, memory, approvals, and dashboard data."
+        ),
     )
     store = create_store(resolved_db)
+    app.state.store = store
     trace_service = TraceService(store)
     memory_service = MemoryService(store)
     approval_service = ApprovalService(store)
     job_service = BackgroundJobService()
-    dashboard_dist = Path(__file__).resolve().parents[2] / "dashboard" / "dist"
-    if dashboard_dist.exists():
+    dashboard_dist = dashboard_dist_dir()
+    if dashboard_dist is not None and (dashboard_dist / "assets").is_dir():
         app.mount("/assets", StaticFiles(directory=dashboard_dist / "assets"), name="assets")
 
-    async def require_auth(authorization: str | None = Header(default=None)) -> None:
+    async def require_auth(
+        authorization: str | None = Header(default=None),
+        x_api_key: str | None = Header(default=None, alias="x-agentmesh-api-key"),
+    ) -> None:
         auth_mode = os.getenv("AGENTMESH_AUTH_MODE", settings.auth_mode).lower()
         if auth_mode in {"", "none", "off", "disabled"}:
             return
@@ -132,7 +220,8 @@ def create_app(db_path: str | Path | None = None):
         expected = os.getenv("AGENTMESH_API_KEY") or settings.api_key
         if not expected:
             raise HTTPException(status_code=500, detail={"error": "auth_misconfigured", "message": "AGENTMESH_API_KEY is required when AGENTMESH_AUTH_MODE=api_key"})
-        if authorization != f"Bearer {expected}":
+        presented = x_api_key or (authorization[7:] if authorization and authorization.lower().startswith("bearer ") else "")
+        if not hmac.compare_digest(presented.encode("utf-8"), expected.encode("utf-8")):
             raise HTTPException(status_code=401, detail={"error": "unauthorized", "message": "Invalid AgentMesh API key"})
 
     @app.exception_handler(AgentMeshError)
@@ -153,10 +242,16 @@ def create_app(db_path: str | Path | None = None):
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> str:
-        index_file = dashboard_dist / "index.html"
-        if index_file.exists():
-            return index_file.read_text(encoding="utf-8")
+        if dashboard_dist is not None:
+            return (dashboard_dist / "index.html").read_text(encoding="utf-8")
         return DASHBOARD_HTML
+
+    @app.get("/vision-space.svg", include_in_schema=False)
+    def dashboard_background() -> Response:
+        background = dashboard_dist / "vision-space.svg" if dashboard_dist is not None else None
+        if background is None or not background.exists():
+            raise HTTPException(status_code=404)
+        return Response(background.read_bytes(), media_type="image/svg+xml")
 
     @app.get("/healthz")
     def healthz() -> dict[str, object]:
@@ -166,6 +261,49 @@ def create_app(db_path: str | Path | None = None):
     def readyz() -> dict[str, object]:
         store.list_traces(1)
         return {"status": "ready"}
+
+    @app.post("/v1/traces", dependencies=[Depends(require_auth)])
+    async def otlp_traces(request: Request) -> Response:
+        """OTLP/HTTP trace receiver. Point any OpenTelemetry exporter at this server."""
+        content_type = request.headers.get("content-type", "application/json")
+        is_protobuf = "protobuf" in content_type
+        if not hasattr(store, "ingest_spans"):
+            raise HTTPException(status_code=501, detail={"error": "ingest_unsupported", "message": "Span ingestion requires an AgentMesh SQLite or PostgreSQL store."})
+        limit = max_request_bytes()
+        too_large = HTTPException(status_code=413, detail={"error": "payload_too_large", "message": f"Request body exceeds {limit} bytes (AGENTMESH_MAX_OTLP_BYTES)"})
+        if request.headers.get("content-length", "").isdigit() and int(request.headers["content-length"]) > limit:
+            raise too_large
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > limit:
+                raise too_large
+        try:
+            spans = decode_request(bytes(body), content_type, request.headers.get("content-encoding"))
+        except ProtobufUnavailable as exc:
+            raise HTTPException(status_code=415, detail={"error": "protobuf_unavailable", "message": str(exc)}) from exc
+        except OTLPPayloadTooLarge as exc:
+            raise HTTPException(status_code=413, detail={"error": "payload_too_large", "message": str(exc)}) from exc
+        except OTLPDecodeError as exc:
+            raise HTTPException(status_code=400, detail={"error": "invalid_otlp_payload", "message": str(exc)}) from exc
+        result = await asyncio.to_thread(store.ingest_spans, spans, "otlp")
+        DEFAULT_METRICS.increment("agentmesh_ingested_spans_total", float(result.get("spans", 0)), labels={"source": "otlp"})
+        if is_protobuf:
+            # An empty ExportTraceServiceResponse serializes to zero bytes.
+            return Response(content=b"", media_type="application/x-protobuf")
+        return Response(content=json.dumps({"partialSuccess": {}}), media_type="application/json")
+
+    @app.get("/api/integrations", dependencies=[Depends(require_auth)])
+    def integrations(request: Request) -> dict[str, object]:
+        base_url = str(request.base_url).rstrip("/")
+        return {
+            "version": __version__,
+            "otlp_traces_endpoint": f"{base_url}/v1/traces",
+            "otlp_base_endpoint": base_url,
+            "protobuf_supported": protobuf_available(),
+            "auth_mode": os.getenv("AGENTMESH_AUTH_MODE", settings.auth_mode).lower(),
+            "capture_content": os.getenv("AGENTMESH_CAPTURE_CONTENT", "true"),
+        }
 
     @app.get("/api/health", dependencies=[Depends(require_auth)])
     def api_health() -> dict[str, object]:
@@ -202,8 +340,16 @@ def create_app(db_path: str | Path | None = None):
         started_before: str | None = None,
         environment: str | None = None,
         is_demo: bool | None = None,
+        session_id: str | None = None,
+        user_id: str | None = None,
+        tag: str | None = None,
+        source: str | None = None,
     ) -> list[dict[str, object]]:
         filters = {
+            "session_id": session_id,
+            "user_id": user_id,
+            "tag": tag,
+            "source": source,
             "q": q,
             "workflow": workflow,
             "agent": agent,
@@ -265,6 +411,186 @@ def create_app(db_path: str | Path | None = None):
     @app.get("/api/traces/{trace_id}/diagnose", dependencies=[Depends(require_auth)])
     def diagnose(trace_id: str) -> dict[str, object]:
         return trace_service.diagnose(trace_id)
+
+    @app.get("/api/traces/{trace_id}/insights", dependencies=[Depends(require_auth)])
+    def insights(trace_id: str) -> dict[str, object]:
+        result = trace_insights(store, trace_id)
+        if not result.get("found"):
+            raise HTTPException(status_code=404, detail={"error": "trace_not_found"})
+        return result
+
+    @app.get("/api/traces/{trace_id}/scores", dependencies=[Depends(require_auth)])
+    def trace_scores(trace_id: str) -> list[dict[str, object]]:
+        return store.list_scores(trace_id=trace_id) if hasattr(store, "list_scores") else []
+
+    @app.get("/api/scores", dependencies=[Depends(require_auth)])
+    def scores(trace_id: str | None = None, name: str | None = None, limit: int = Query(200, ge=1, le=1000)) -> list[dict[str, object]]:
+        return store.list_scores(trace_id=trace_id, name=name, limit=limit) if hasattr(store, "list_scores") else []
+
+    @app.post("/api/scores", dependencies=[Depends(require_auth)])
+    def create_score(request: ScoreRequest) -> dict[str, object]:
+        if not hasattr(store, "save_score"):
+            raise HTTPException(status_code=501, detail={"error": "scores_unsupported"})
+        try:
+            return store.save_score(request.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail={"error": "invalid_score", "message": str(exc)}) from exc
+
+    @app.get("/api/sessions", dependencies=[Depends(require_auth)])
+    def sessions(
+        limit: int = Query(100, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        user_id: str | None = None,
+    ) -> list[dict[str, object]]:
+        return store.list_sessions(limit=limit, user_id=user_id, offset=offset) if hasattr(store, "list_sessions") else []
+
+    @app.get("/api/sessions/{session_id}", dependencies=[Depends(require_auth)])
+    def session(session_id: str) -> dict[str, object]:
+        item = store.get_session(session_id) if hasattr(store, "get_session") else None
+        if item is None:
+            raise HTTPException(status_code=404, detail={"error": "session_not_found"})
+        return item
+
+    def not_found(kind: str, ref: str) -> HTTPException:
+        label = kind.replace("_", " ")
+        return HTTPException(status_code=404, detail={"error": f"{kind}_not_found", "message": f"{label} not found: {ref}"})
+
+    def invalid(exc: Exception) -> HTTPException:
+        return HTTPException(status_code=422, detail={"error": "invalid_request", "message": str(exc).strip("'")})
+
+    @app.get("/api/datasets", dependencies=[Depends(require_auth)])
+    def datasets() -> list[dict[str, object]]:
+        return store.list_datasets()
+
+    @app.post("/api/datasets", dependencies=[Depends(require_auth)], status_code=201)
+    def create_dataset(request: DatasetRequest) -> dict[str, object]:
+        try:
+            return store.create_dataset(request.name, request.description, request.metadata)
+        except ValueError as exc:
+            status = 409 if "already exists" in str(exc) else 422
+            raise HTTPException(status_code=status, detail={"error": "invalid_dataset", "message": str(exc)}) from exc
+
+    @app.get("/api/datasets/{dataset}", dependencies=[Depends(require_auth)])
+    def dataset_detail(
+        dataset: str, limit: int = Query(5000, ge=1, le=100000), offset: int = Query(0, ge=0)
+    ) -> dict[str, object]:
+        # item_count is the total; clients page with offset until they have them all.
+        item = store.get_dataset(dataset, limit=limit, offset=offset)
+        if item is None:
+            raise not_found("dataset", dataset)
+        return item
+
+    @app.delete("/api/datasets/{dataset}", dependencies=[Depends(require_auth)])
+    def delete_dataset(dataset: str) -> dict[str, object]:
+        if not store.delete_dataset(dataset):
+            raise not_found("dataset", dataset)
+        return {"deleted": True}
+
+    @app.post("/api/datasets/{dataset}/items", dependencies=[Depends(require_auth)], status_code=201)
+    def add_dataset_items(dataset: str, request: DatasetItemsRequest) -> dict[str, object]:
+        try:
+            if request.trace_id:
+                kwargs: dict[str, object] = {"metadata": request.metadata}
+                if request.expected is not None or not request.use_trace_output:
+                    kwargs["expected"] = request.expected
+                return {"items": [store.add_trace_to_dataset(dataset, request.trace_id, request.span_id, **kwargs)]}
+            if not request.items:
+                raise ValueError("send 'items' or a 'trace_id'")
+            return {"items": store.add_dataset_items(dataset, request.items)}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail={"error": "not_found", "message": str(exc).strip("'")}) from exc
+        except ValueError as exc:
+            raise invalid(exc) from exc
+
+    @app.delete("/api/datasets/{dataset}/items/{item_id}", dependencies=[Depends(require_auth)])
+    def delete_dataset_item(dataset: str, item_id: str) -> dict[str, object]:
+        if not store.delete_dataset_item(dataset, item_id):
+            raise not_found("dataset_item", item_id)
+        return {"deleted": True}
+
+    @app.get("/api/experiments", dependencies=[Depends(require_auth)])
+    def experiments(dataset: str | None = None, limit: int = Query(100, ge=1, le=1000)) -> list[dict[str, object]]:
+        return store.list_experiments(dataset=dataset, limit=limit)
+
+    @app.post("/api/experiments", dependencies=[Depends(require_auth)])
+    def save_experiment(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+        try:
+            return store.save_experiment(payload)
+        except ValueError as exc:
+            raise invalid(exc) from exc
+
+    @app.get("/api/experiments/compare", dependencies=[Depends(require_auth)])
+    def compare_experiments(base: str, candidate: str) -> dict[str, object]:
+        result = store.compare_experiments(base, candidate)
+        if result is None:
+            raise not_found("experiment", f"{base} or {candidate}")
+        return result
+
+    @app.get("/api/experiments/{experiment_id}", dependencies=[Depends(require_auth)])
+    def experiment_detail(experiment_id: str) -> dict[str, object]:
+        item = store.get_experiment(experiment_id)
+        if item is None:
+            raise not_found("experiment", experiment_id)
+        return item
+
+    @app.delete("/api/experiments/{experiment_id}", dependencies=[Depends(require_auth)])
+    def delete_experiment(experiment_id: str) -> dict[str, object]:
+        if not store.delete_experiment(experiment_id):
+            raise not_found("experiment", experiment_id)
+        return {"deleted": True}
+
+    @app.get("/api/alerts/kinds", dependencies=[Depends(require_auth)])
+    def alert_kinds() -> dict[str, object]:
+        return {"kinds": ALERT_KINDS, "check_interval_seconds": scheduler_interval()}
+
+    @app.get("/api/alerts/rules", dependencies=[Depends(require_auth)])
+    def alert_rules() -> list[dict[str, object]]:
+        return store.list_alert_rules()
+
+    @app.post("/api/alerts/rules", dependencies=[Depends(require_auth)], status_code=201)
+    def create_alert_rule(request: AlertRuleRequest) -> dict[str, object]:
+        try:
+            return store.create_alert_rule(request.model_dump(exclude_none=True))
+        except ValueError as exc:
+            raise invalid(exc) from exc
+
+    @app.patch("/api/alerts/rules/{rule}", dependencies=[Depends(require_auth)])
+    def update_alert_rule(rule: str, request: AlertRuleRequest) -> dict[str, object]:
+        try:
+            item = store.update_alert_rule(rule, request.model_dump(exclude_none=True))
+        except ValueError as exc:
+            raise invalid(exc) from exc
+        if item is None:
+            raise not_found("alert_rule", rule)
+        return item
+
+    @app.delete("/api/alerts/rules/{rule}", dependencies=[Depends(require_auth)])
+    def delete_alert_rule(rule: str) -> dict[str, object]:
+        if not store.delete_alert_rule(rule):
+            raise not_found("alert_rule", rule)
+        return {"deleted": True}
+
+    @app.post("/api/alerts/rules/{rule}/test", dependencies=[Depends(require_auth)])
+    async def test_alert_rule(rule: str) -> dict[str, object]:
+        result = await asyncio.to_thread(store.test_alert_rule, rule)
+        if result is None:
+            raise not_found("alert_rule", rule)
+        return result
+
+    @app.post("/api/alerts/check", dependencies=[Depends(require_auth)])
+    async def check_alerts(deliver: bool = True) -> dict[str, object]:
+        return {"fired": await asyncio.to_thread(store.check_alerts, deliver)}
+
+    @app.get("/api/alerts/events", dependencies=[Depends(require_auth)])
+    def alert_events(limit: int = Query(100, ge=1, le=1000), rule: str | None = None) -> list[dict[str, object]]:
+        return store.list_alert_events(limit=limit, rule=rule)
+
+    @app.get("/api/pricing", dependencies=[Depends(require_auth)])
+    def pricing(model: str | None = None, provider: str | None = None) -> dict[str, object]:
+        if model is None:
+            return {"rules": list_pricing_rules()}
+        rule = pricing_for(provider, model)
+        return {"provider": provider, "model": model, "found": rule is not None, "rule": rule.to_json() if rule else None}
 
     @app.get("/api/traces/{trace_id}/export", dependencies=[Depends(require_auth)])
     def export_trace(trace_id: str, format: str = Query("json", pattern="^(json|otel-json)$")) -> dict[str, object]:
@@ -640,6 +966,12 @@ def create_app(db_path: str | Path | None = None):
 
     @app.websocket("/ws/events")
     async def websocket_events(websocket: WebSocket) -> None:
+        # HTTP dependencies don't apply to WebSocket routes, so check the same key explicitly.
+        try:
+            await require_auth(websocket.headers.get("authorization"), websocket.headers.get("x-agentmesh-api-key"))
+        except HTTPException:
+            await websocket.close(code=1008)
+            return
         await websocket.accept()
         seen: set[str] = set()
         try:

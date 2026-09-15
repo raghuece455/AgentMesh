@@ -1,6 +1,6 @@
 # Security
 
-AgentMesh is `v0.3.0-alpha` software. The security posture is **local-first and auth-ready**, designed for safe local development and team evaluation — not yet enterprise-hardened.
+AgentMesh is `v0.4.0` software. The security posture is **local-first and auth-ready**, designed for safe local development, evaluation, and single-team self-hosting — not yet enterprise-hardened.
 
 ---
 
@@ -38,13 +38,33 @@ export AGENTMESH_AUTH_MODE=api_key
 export AGENTMESH_API_KEY=your-secret-key
 ```
 
-All API routes then require:
+All API routes, the live event stream, and the OTLP receiver (`POST /v1/traces`) then require:
 
 ```
 Authorization: Bearer your-secret-key
 ```
 
+`X-AgentMesh-Api-Key: your-secret-key` is accepted as well. The dashboard asks for the key the first time it gets a `401` and keeps it in that browser's local storage. OpenTelemetry exporters send it with `OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer%20your-secret-key"`; the SDK with `agentmesh.init(api_key=...)` or `AGENTMESH_API_KEY`.
+
 The default is `AGENTMESH_AUTH_MODE=none` (open access), which is correct for local single-user development.
+
+---
+
+### Trace Ingestion and Privacy
+
+| Control | Setting |
+|---|---|
+| Don't store prompt/response text at all | `AGENTMESH_CAPTURE_CONTENT=false` on the server, or `agentmesh.init(capture_content=False)` in the SDK. Token usage, cost, timing, and errors are still recorded. |
+| Limit stored content size | `AGENTMESH_MAX_CONTENT_CHARS` (default 100,000 characters per field) |
+| Limit request size | `AGENTMESH_MAX_OTLP_BYTES` (default 32 MiB, enforced before and after gzip/deflate decompression; larger requests get `413`) |
+| Delete old data | `agentmesh traces prune --older-than 30d [--vacuum]` |
+
+### Alert Webhooks
+
+- Only `http`/`https` webhook URLs are accepted, and redirects are never followed.
+- Webhook URLs (which often embed a token, as Slack's do) and signing secrets are masked in API responses and the dashboard.
+- With `--secret` / `channel.secret`, payloads carry `X-AgentMesh-Timestamp` and `X-AgentMesh-Signature` (HMAC-SHA256 over `"<timestamp>.<body>"`) so receivers can reject forged calls. See [alerts.md](alerts.md#verify-signatures).
+- The server makes outbound requests to the URLs in alert rules. Turn on API-key auth before exposing it, so that only trusted clients can create rules.
 
 ---
 
@@ -103,10 +123,10 @@ The following actions create audit records in the trace:
 
 | Feature | Status |
 |---|---|
-| User authentication | Planned — v0.4 |
-| RBAC (role-based access control) | Planned — v0.5 |
-| Workspace / team isolation | Planned — v0.5 |
-| OTEL audit log export | Planned — v0.4 |
+| User authentication (login) | Planned — v0.5+ |
+| RBAC (role-based access control) | Planned — v0.5+ |
+| Workspace / team isolation | Planned — v0.5+ |
+| OTEL audit log export | Planned |
 | Hosted deployment hardening | Planned — v1.0 |
 
 ---

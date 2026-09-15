@@ -11,10 +11,10 @@ from agentmesh.types import JsonObject, JsonValue, dumps_json, has_redactions, l
 PROVIDER_CATALOG = [
     ("openai-compatible", "OpenAI-compatible", "not_configured"),
     ("ollama", "Ollama", "not_configured"),
-    ("anthropic", "Anthropic", "planned"),
-    ("gemini", "Gemini", "planned"),
-    ("azure-openai", "Azure OpenAI", "planned"),
-    ("vllm", "vLLM", "planned"),
+    ("anthropic", "Anthropic", "not_configured"),
+    ("gemini", "Gemini", "not_configured"),
+    ("azure-openai", "Azure OpenAI", "not_configured"),
+    ("vllm", "vLLM", "not_configured"),
     ("mock", "Mock provider", "healthy"),
 ]
 
@@ -423,13 +423,138 @@ def _apply_lightweight_migrations(conn: sqlite3.Connection) -> None:
         "cost_records": {
             "cost_status": "text not null default 'unknown'",
             "cost_source": "text",
+            "cache_write_tokens": "integer not null default 0",
         },
     }
+    # v0.4: framework-agnostic ingestion, sessions, users, tags, and scores.
+    migrations["workflow_runs"].update(
+        {
+            "session_id": "text",
+            "user_id": "text",
+            "tags_json": "text not null default '[]'",
+            "source": "text not null default 'runtime'",
+            "service_name": "text",
+        }
+    )
+    migrations["spans"].update({"name": "text", "span_kind": "text", "cache_write_tokens": "integer not null default 0"})
+    migrations["model_calls"]["cache_write_tokens"] = "integer not null default 0"
+    migrations["evaluations"] = {"span_id": "text", "label": "text", "comment": "text", "source": "text"}
     for table, columns in migrations.items():
         existing = {row["name"] for row in conn.execute(f"pragma table_info({table})").fetchall()}
         for column, definition in columns.items():
             if column not in existing:
                 conn.execute(f"alter table {table} add column {column} {definition}")
+    conn.execute("create index if not exists idx_workflow_runs_session on workflow_runs(session_id, started_at)")
+    conn.execute("create index if not exists idx_workflow_runs_user on workflow_runs(user_id, started_at)")
+    conn.execute("create index if not exists idx_evaluations_trace on evaluations(trace_id, created_at)")
+    conn.execute(
+        "insert or ignore into schema_migrations (version, name, applied_at) values (2, 'ingestion_sessions_scores', ?)",
+        (utc_now(),),
+    )
+    for statement in DATASET_AND_ALERT_SCHEMA:
+        conn.execute(statement)
+    conn.execute(
+        "insert or ignore into schema_migrations (version, name, applied_at) values (3, 'datasets_experiments_alerts', ?)",
+        (utc_now(),),
+    )
+
+
+# v0.4: datasets, experiments, and alerting. Written in the SQL subset shared by SQLite and PostgreSQL.
+DATASET_AND_ALERT_SCHEMA = [
+    """
+    create table if not exists datasets (
+      dataset_id text primary key,
+      name text not null unique,
+      description text,
+      created_at text not null,
+      updated_at text not null,
+      metadata_json text not null
+    )
+    """,
+    """
+    create table if not exists dataset_items (
+      item_id text primary key,
+      dataset_id text not null,
+      input_json text,
+      expected_json text,
+      metadata_json text not null,
+      source_trace_id text,
+      source_span_id text,
+      created_at text not null
+    )
+    """,
+    "create index if not exists idx_dataset_items_dataset on dataset_items(dataset_id, created_at)",
+    """
+    create table if not exists experiments (
+      experiment_id text primary key,
+      dataset_id text,
+      dataset_name text,
+      name text not null,
+      description text,
+      status text not null,
+      started_at text not null,
+      ended_at text,
+      evaluators_json text not null,
+      summary_json text not null,
+      metadata_json text not null
+    )
+    """,
+    "create index if not exists idx_experiments_dataset on experiments(dataset_id, started_at)",
+    """
+    create table if not exists experiment_results (
+      result_id text primary key,
+      experiment_id text not null,
+      item_id text not null,
+      trace_id text,
+      status text not null,
+      input_json text,
+      expected_json text,
+      output_json text,
+      error_message text,
+      duration_ms real,
+      scores_json text not null,
+      created_at text not null
+    )
+    """,
+    "create index if not exists idx_experiment_results_experiment on experiment_results(experiment_id, item_id)",
+    """
+    create table if not exists alert_rules (
+      rule_id text primary key,
+      name text not null unique,
+      kind text not null,
+      threshold real not null,
+      window_minutes integer not null,
+      cooldown_minutes integer not null,
+      filters_json text not null,
+      channel_json text not null,
+      enabled integer not null default 1,
+      state text not null default 'ok',
+      state_json text not null,
+      last_value real,
+      last_evaluated_at text,
+      last_triggered_at text,
+      created_at text not null,
+      updated_at text not null
+    )
+    """,
+    """
+    create table if not exists alert_events (
+      alert_id text primary key,
+      rule_id text not null,
+      rule_name text not null,
+      kind text not null,
+      status text not null,
+      value real,
+      threshold real,
+      message text not null,
+      details_json text not null,
+      delivered integer not null default 0,
+      delivery_error text,
+      created_at text not null
+    )
+    """,
+    "create index if not exists idx_alert_events_time on alert_events(created_at)",
+]
 
 
 def materialize_workflow_created(conn: sqlite3.Connection, trace_id: str, name: str, input_value: JsonValue) -> None:
@@ -667,10 +792,22 @@ def list_traces(
     if filters.get("end") or filters.get("started_before"):
         where.append("wr.started_at <= ?")
         params.append(filters.get("end") or filters.get("started_before"))
+    if filters.get("session_id"):
+        where.append("wr.session_id = ?")
+        params.append(filters["session_id"])
+    if filters.get("user_id"):
+        where.append("wr.user_id = ?")
+        params.append(filters["user_id"])
+    if filters.get("tag"):
+        where.append("wr.tags_json like ?")
+        params.append(f'%"{filters["tag"]}"%')
+    if filters.get("source"):
+        where.append("wr.source = ?")
+        params.append(filters["source"])
     if filters.get("q"):
-        where.append("(wr.trace_id like ? or wr.workflow_name like ? or wr.status like ?)")
+        where.append("(wr.trace_id like ? or wr.workflow_name like ? or wr.status like ? or wr.session_id like ? or wr.user_id like ?)")
         q = f"%{filters['q']}%"
-        params.extend([q, q, q])
+        params.extend([q, q, q, q, q])
     clause = f"where {' and '.join(where)}" if where else ""
     having: list[str] = []
     if filters.get("min_cost") is not None:
@@ -685,19 +822,22 @@ def list_traces(
     if filters.get("max_latency") is not None:
         having.append("max_latency_ms <= ?")
         params.append(filters["max_latency"])
-    having_clause = f"having {' and '.join(having)}" if having else ""
+    # Filter aggregates in an outer query: PostgreSQL does not accept select aliases in HAVING.
+    outer_clause = f"where {' and '.join(having)}" if having else ""
     rows = conn.execute(
         f"""
-        select wr.*, coalesce(sum(cr.total_tokens), 0) as total_tokens,
-               coalesce(sum(cr.estimated_cost), 0) as estimated_cost,
-               coalesce(max(cr.latency_ms), wr.duration_ms, 0) as max_latency_ms,
-               (select count(*) from spans s where s.trace_id = wr.trace_id) as span_count
-        from workflow_runs wr
-        left join cost_records cr on cr.trace_id = wr.trace_id
-        {clause}
-        group by wr.trace_id
-        {having_clause}
-        order by wr.started_at desc
+        select * from (
+          select wr.*, coalesce(sum(cr.total_tokens), 0) as total_tokens,
+                 coalesce(sum(cr.estimated_cost), 0) as estimated_cost,
+                 coalesce(max(cr.latency_ms), wr.duration_ms, 0) as max_latency_ms,
+                 (select count(*) from spans s where s.trace_id = wr.trace_id) as span_count
+          from workflow_runs wr
+          left join cost_records cr on cr.trace_id = wr.trace_id
+          {clause}
+          group by wr.run_id
+        ) runs
+        {outer_clause}
+        order by started_at desc
         limit ? offset ?
         """,
         (*params, limit, offset),
@@ -717,7 +857,7 @@ def get_trace(conn: sqlite3.Connection, trace_id: str) -> JsonObject | None:
         from workflow_runs wr
         left join cost_records cr on cr.trace_id = wr.trace_id
         where wr.trace_id = ?
-        group by wr.trace_id
+        group by wr.run_id
         """,
         (trace_id,),
     ).fetchone()
@@ -843,16 +983,21 @@ def overview_timeseries(conn: sqlite3.Connection) -> JsonObject:
 def list_workflows(conn: sqlite3.Connection) -> list[JsonObject]:
     rows = conn.execute(
         """
+        with trace_costs as (
+          select trace_id, coalesce(sum(estimated_cost), 0) as cost, coalesce(sum(total_tokens), 0) as tokens
+          from cost_records group by trace_id
+        )
         select wc.workflow_id, wc.workflow_name, wc.created_at, wc.updated_at,
                count(wr.run_id) as runs,
                sum(case when wr.status = 'running' then 1 else 0 end) as active_runs,
                sum(case when wr.status = 'failed' then 1 else 0 end) as failed_runs,
                coalesce(avg(wr.duration_ms), 0) as avg_latency_ms,
-               coalesce(sum(cr.estimated_cost), 0) as total_cost,
-               coalesce(sum(cr.total_tokens), 0) as total_tokens
+               coalesce(sum(tc.cost), 0) as total_cost,
+               coalesce(sum(tc.tokens), 0) as total_tokens
         from workflows_catalog wc
         left join workflow_runs wr on wr.workflow_id = wc.workflow_id
-        left join cost_records cr on cr.trace_id = wr.trace_id
+        -- one row per run: joining cost_records directly repeated each run once per model call
+        left join trace_costs tc on tc.trace_id = wr.trace_id
         group by wc.workflow_id
         order by wc.updated_at desc
         """
@@ -931,15 +1076,15 @@ def get_agent(conn: sqlite3.Connection, agent_id: str) -> JsonObject | None:
 def agent_runs(conn: sqlite3.Connection, agent_id: str) -> list[JsonObject]:
     rows = conn.execute(
         """
-        select distinct wr.trace_id from workflow_runs wr
-        join spans s on s.trace_id = wr.trace_id
-        where s.agent_id = ?
+        select wr.trace_id from workflow_runs wr
+        where exists (select 1 from spans s where s.trace_id = wr.trace_id and s.agent_id = ?)
         order by wr.started_at desc
         limit 100
         """,
         (agent_id,),
     ).fetchall()
-    return [get_trace(conn, row["trace_id"]) for row in rows if get_trace(conn, row["trace_id"]) is not None]
+    traces = (get_trace(conn, row["trace_id"]) for row in rows)
+    return [trace for trace in traces if trace is not None]
 
 
 def agent_messages(conn: sqlite3.Connection, agent_id: str) -> list[JsonObject]:
@@ -1085,7 +1230,7 @@ def cost_by_failed_run(conn: sqlite3.Connection) -> list[JsonObject]:
         from workflow_runs wr
         left join cost_records cr on cr.trace_id = wr.trace_id
         where wr.status = 'failed'
-        group by wr.trace_id
+        group by wr.run_id, wr.trace_id, wr.workflow_name, wr.status, wr.error_type, wr.error_message
         order by estimated_cost desc
         """
     ).fetchall()
@@ -1185,13 +1330,16 @@ def list_evaluations(conn: sqlite3.Connection) -> list[JsonObject]:
 
 def evaluation_summary(conn: sqlite3.Connection) -> JsonObject:
     rows = list_evaluations(conn)
-    scores = [float(item["score"]) for item in rows if item.get("score") is not None]
-    passed = [item for item in rows if item.get("passed")]
+    # Scores share this table and can use any scale (e.g. a 1-5 rating); only 0..1 values are
+    # percentages, and only rows with an explicit verdict count toward the pass rate.
+    scores = [float(item["score"]) for item in rows if item.get("score") is not None and 0 <= float(item["score"]) <= 1]
+    judged = [item for item in rows if item.get("passed") is not None]
+    passed = [item for item in judged if item.get("passed")]
     return {
         "count": len(rows),
         "task_success_score": sum(scores) / len(scores) if scores else None,
         "human_rating": None,
-        "schema_validation_pass_rate": len(passed) / len(rows) if rows else None,
+        "schema_validation_pass_rate": len(passed) / len(judged) if judged else None,
         "rag_faithfulness_score": None,
         "hallucination_risk": None,
         "regression_status": "not_configured" if not rows else "passing",
@@ -1203,20 +1351,33 @@ def evaluation_summary(conn: sqlite3.Connection) -> JsonObject:
 
 
 def save_evaluation(conn: sqlite3.Connection, payload: JsonObject) -> JsonObject:
-    evaluation_id = str(payload.get("evaluation_id") or f"eval_{datetime.now(UTC).timestamp():.0f}")
-    now = utc_now()
+    from agentmesh.types import new_id
+
+    # IDs used to be derived from the current second, so two evaluations saved
+    # in the same second silently overwrote each other.
+    evaluation_id = str(payload.get("evaluation_id") or new_id("eval"))
+    now = str(payload.get("created_at") or utc_now())
+    workflow_name = _string(payload.get("workflow_name"))
+    trace_id = _string(payload.get("trace_id"))
+    if trace_id and not workflow_name:
+        run = conn.execute("select workflow_id, workflow_name from workflow_runs where trace_id = ?", (trace_id,)).fetchone()
+        if run is not None:
+            workflow_name = run["workflow_name"]
+            payload = {**payload, "workflow_id": payload.get("workflow_id") or run["workflow_id"]}
+    passed = payload.get("passed", True)
     conn.execute(
         """
         insert or replace into evaluations
         (evaluation_id, trace_id, workflow_id, workflow_name, agent_id, agent_name, evaluator, evaluator_type, status,
-         score, human_rating, passed, expected_json, actual_json, findings_json, created_at, metadata_json)
-        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         score, human_rating, passed, expected_json, actual_json, findings_json, created_at, metadata_json,
+         span_id, label, comment, source)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             evaluation_id,
-            _string(payload.get("trace_id")),
+            trace_id,
             _string(payload.get("workflow_id")),
-            _string(payload.get("workflow_name")),
+            workflow_name,
             _string(payload.get("agent_id")),
             _string(payload.get("agent_name")),
             str(payload.get("evaluator", "mock-evaluator")),
@@ -1224,15 +1385,207 @@ def save_evaluation(conn: sqlite3.Connection, payload: JsonObject) -> JsonObject
             str(payload.get("status", "completed")),
             _float_or_none(payload.get("score")),
             _float_or_none(payload.get("human_rating")),
-            1 if payload.get("passed", True) else 0,
+            None if passed is None else (1 if passed else 0),
             dumps_json(payload.get("expected")),
             dumps_json(payload.get("actual")),
             dumps_json(payload.get("findings", [])),
             now,
             dumps_json(payload.get("metadata", {})),
+            _string(payload.get("span_id")),
+            _string(payload.get("label")),
+            _string(payload.get("comment")),
+            _string(payload.get("source")),
         ),
     )
     return {"evaluation_id": evaluation_id, "created_at": now, "status": "completed"}
+
+
+def save_score(conn: sqlite3.Connection, payload: JsonObject) -> JsonObject:
+    """Attach a score (human feedback, eval result, LLM-as-judge) to a trace or span."""
+    name = _string(payload.get("name"))
+    if not name:
+        raise ValueError("score name is required")
+    if not _string(payload.get("trace_id")):
+        raise ValueError("trace_id is required")
+    value = payload.get("value")
+    numeric = _float_or_none(value) if not isinstance(value, bool) else (1.0 if value else 0.0)
+    label = _string(payload.get("label")) or (value if isinstance(value, str) else None)
+    passed = payload.get("passed")
+    if passed is None and numeric is not None and isinstance(value, bool):
+        passed = value
+    source = str(payload.get("source") or "api")
+    result = save_evaluation(
+        conn,
+        {
+            "evaluation_id": payload.get("score_id"),
+            "trace_id": payload.get("trace_id"),
+            "span_id": payload.get("span_id"),
+            "evaluator": name,
+            "evaluator_type": "human_feedback" if source in {"human", "feedback", "dashboard"} else source,
+            "score": numeric,
+            "human_rating": numeric if source in {"human", "feedback", "dashboard"} else None,
+            "passed": passed,
+            "label": label,
+            "comment": payload.get("comment"),
+            "source": source,
+            "findings": [payload["comment"]] if payload.get("comment") else [],
+            "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
+            "created_at": payload.get("created_at"),
+        },
+    )
+    return {"score_id": result["evaluation_id"], "created_at": result["created_at"]}
+
+
+def list_scores(
+    conn: sqlite3.Connection,
+    trace_id: str | None = None,
+    name: str | None = None,
+    limit: int = 200,
+) -> list[JsonObject]:
+    where: list[str] = []
+    params: list[Any] = []
+    if trace_id:
+        where.append("trace_id = ?")
+        params.append(trace_id)
+    if name:
+        where.append("evaluator = ?")
+        params.append(name)
+    clause = f"where {' and '.join(where)}" if where else ""
+    rows = conn.execute(
+        f"select * from evaluations {clause} order by created_at desc limit ?",
+        (*params, max(min(int(limit), 1000), 1)),
+    ).fetchall()
+    return [
+        {
+            "score_id": row["evaluation_id"],
+            "trace_id": row["trace_id"],
+            "span_id": row["span_id"],
+            "name": row["evaluator"],
+            "value": row["score"],
+            "label": row["label"],
+            "comment": row["comment"],
+            "passed": bool(row["passed"]) if row["passed"] is not None else None,
+            "source": row["source"] or row["evaluator_type"],
+            "workflow_name": row["workflow_name"],
+            "created_at": row["created_at"],
+            "metadata": loads_json(row["metadata_json"]),
+        }
+        for row in rows
+    ]
+
+
+def list_sessions(conn: sqlite3.Connection, limit: int = 100, user_id: str | None = None, offset: int = 0) -> list[JsonObject]:
+    params: list[Any] = []
+    user_clause = ""
+    if user_id:
+        user_clause = "and wr.user_id = ?"
+        params.append(user_id)
+    rows = conn.execute(
+        f"""
+        with trace_costs as (
+          select trace_id, coalesce(sum(estimated_cost), 0) as cost, coalesce(sum(total_tokens), 0) as tokens
+          from cost_records group by trace_id
+        )
+        select wr.session_id,
+               count(*) as trace_count,
+               min(wr.started_at) as started_at,
+               max(coalesce(wr.ended_at, wr.started_at)) as last_activity_at,
+               sum(case when wr.status = 'failed' then 1 else 0 end) as failed_traces,
+               sum(case when wr.status = 'running' then 1 else 0 end) as running_traces,
+               max(wr.user_id) as user_id,
+               coalesce(sum(tc.cost), 0) as estimated_cost,
+               coalesce(sum(tc.tokens), 0) as total_tokens,
+               coalesce(sum(wr.duration_ms), 0) as total_duration_ms
+        from workflow_runs wr
+        left join trace_costs tc on tc.trace_id = wr.trace_id
+        where wr.session_id is not null and wr.session_id != '' {user_clause}
+        group by wr.session_id
+        order by last_activity_at desc
+        limit ? offset ?
+        """,
+        (*params, max(min(int(limit), 500), 1), max(int(offset), 0)),
+    ).fetchall()
+    return [_row_dict(row) for row in rows]
+
+
+def get_session(conn: sqlite3.Connection, session_id: str) -> JsonObject | None:
+    summary = conn.execute(
+        """
+        select session_id, count(*) as trace_count, min(started_at) as started_at,
+               max(coalesce(ended_at, started_at)) as last_activity_at, max(user_id) as user_id,
+               sum(case when status = 'failed' then 1 else 0 end) as failed_traces
+        from workflow_runs where session_id = ? group by session_id
+        """,
+        (session_id,),
+    ).fetchone()
+    if summary is None:
+        return None
+    trace_ids = [
+        row["trace_id"]
+        for row in conn.execute(
+            "select trace_id from workflow_runs where session_id = ? order by started_at asc limit 500",
+            (session_id,),
+        ).fetchall()
+    ]
+    traces = [trace for trace in (get_trace(conn, trace_id) for trace_id in trace_ids) if trace is not None]
+    scores = [score for trace_id in trace_ids for score in list_scores(conn, trace_id=trace_id)]
+    return {
+        **_row_dict(summary),
+        "estimated_cost": sum(_float(trace.get("estimated_cost")) for trace in traces),
+        "total_tokens": sum(_int(trace.get("total_tokens")) for trace in traces),
+        "traces": traces,
+        "scores": scores,
+    }
+
+
+TRACE_SCOPED_TABLES = (
+    "events",
+    "spans",
+    "model_calls",
+    "tool_calls",
+    "memory_operations",
+    "rag_retrievals",
+    "cost_records",
+    "tasks",
+    "checkpoints",
+    "prompt_versions",
+    "approvals",
+    "task_results",
+    "audit_logs",
+    "evaluations",
+    "replay_checkpoints",
+    "traces",
+    "workflow_runs",
+    "workflows",
+)
+
+
+def prune_traces(conn: sqlite3.Connection, started_before: str, dry_run: bool = False) -> JsonObject:
+    """Delete traces (and everything attached to them) that started before a timestamp."""
+    trace_ids = [
+        row["trace_id"]
+        for row in conn.execute(
+            """
+            select trace_id from workflow_runs where started_at < ?
+            union
+            select trace_id from workflows where started_at < ?
+            """,
+            (started_before, started_before),
+        ).fetchall()
+    ]
+    deleted: dict[str, int] = {}
+    if not dry_run and trace_ids:
+        for start in range(0, len(trace_ids), 500):
+            chunk = trace_ids[start : start + 500]
+            placeholders = ",".join("?" for _ in chunk)
+            for table in TRACE_SCOPED_TABLES:
+                cursor = conn.execute(f"delete from {table} where trace_id in ({placeholders})", chunk)
+                deleted[table] = deleted.get(table, 0) + max(cursor.rowcount, 0)
+            cursor = conn.execute(f"delete from replay_runs where source_trace_id in ({placeholders})", chunk)
+            deleted["replay_runs"] = deleted.get("replay_runs", 0) + max(cursor.rowcount, 0)
+        conn.execute("delete from workflows_catalog where workflow_id not in (select distinct workflow_id from workflow_runs)")
+        _refresh_provider_health(conn)
+    return {"started_before": started_before, "traces": len(trace_ids), "dry_run": dry_run, "deleted_rows": deleted}
 
 
 def create_replay(conn: sqlite3.Connection, trace_id: str, span_id: str | None, mode: str, result: JsonObject) -> JsonObject:
@@ -1344,7 +1697,7 @@ def _materialize_task(
           status = excluded.status,
           ended_at = coalesce(excluded.ended_at, tasks.ended_at),
           duration_ms = coalesce(excluded.duration_ms, tasks.duration_ms),
-          retry_count = max(tasks.retry_count, excluded.retry_count),
+          retry_count = case when excluded.retry_count > tasks.retry_count then excluded.retry_count else tasks.retry_count end,
           output_json = coalesce(excluded.output_json, tasks.output_json),
           error_type = coalesce(excluded.error_type, tasks.error_type),
           error_message = coalesce(excluded.error_message, tasks.error_message)
@@ -1771,6 +2124,17 @@ def _audit_signal(conn: sqlite3.Connection, event: Any, payload: JsonObject) -> 
 
 def _refresh_provider_health(conn: sqlite3.Connection) -> None:
     now = utc_now()
+    # Providers whose model calls were all deleted (e.g. by prune_traces) must not keep stale stats.
+    conn.execute(
+        """
+        update provider_health
+        set calls = 0, tokens = 0, cost_usd = 0, avg_latency_ms = 0, p95_latency_ms = 0, error_count = 0,
+            error_rate = 0, last_error = null, updated_at = ?,
+            status = case when provider = 'mock' then 'healthy' else 'not_configured' end
+        where calls > 0 and provider not in (select distinct coalesce(provider, 'unknown') from model_calls)
+        """,
+        (now,),
+    )
     stats = conn.execute(
         """
         select provider, count(*) as calls, coalesce(sum(total_tokens), 0) as tokens,
@@ -1978,6 +2342,11 @@ def _workflow_run_to_json(row: sqlite3.Row) -> JsonObject:
         "estimated_cost": _float(row["estimated_cost"]),
         "max_latency_ms": _float(row["max_latency_ms"]),
         "span_count": _int(row["span_count"]),
+        "session_id": row["session_id"],
+        "user_id": row["user_id"],
+        "tags": loads_json(row["tags_json"]) or [],
+        "source": row["source"],
+        "service_name": row["service_name"],
     }
 
 
@@ -2093,7 +2462,7 @@ def _row_dict(row: sqlite3.Row | None) -> JsonObject:
 def _quality_by(rows: list[JsonObject], key: str) -> list[JsonObject]:
     grouped: dict[str, list[float]] = defaultdict(list)
     for row in rows:
-        if row.get("score") is None:
+        if row.get("score") is None or not 0 <= float(row["score"]) <= 1:
             continue
         grouped[str(row.get(key) or "unknown")].append(float(row["score"]))
     return [{"name": name, "score": sum(values) / len(values)} for name, values in grouped.items()]
@@ -2146,9 +2515,20 @@ def _p95(values: list[float]) -> float:
 
 def _context_window(model: str) -> int | None:
     lowered = model.lower()
-    if "gpt-4.1" in lowered or "gpt-5" in lowered:
+    if "gpt-4.1" in lowered:
         return 1_000_000
+    if "gpt-5" in lowered:
+        return 400_000
     if "claude" in lowered:
+        # Claude 4.6 and later (including the 5 family) ship a 1M context window.
+        import re
+
+        match = re.search(r"claude-(?:opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?", lowered)
+        if match:
+            major = int(match.group(1))
+            minor = int(match.group(2)) if match.group(2) and len(match.group(2)) <= 2 else 0
+            if major >= 5 or (major == 4 and minor >= 6):
+                return 1_000_000
         return 200_000
     if "gemini" in lowered:
         return 1_000_000

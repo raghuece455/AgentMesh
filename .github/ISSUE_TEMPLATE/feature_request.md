@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Propose a runtime, dashboard, provider, tool, memory, or RAG improvement
+about: Propose an integration (framework, OTel attribute mapping, client library), SDK, dashboard, insight, MCP, runtime, or provider improvement
 title: "[Feature]: "
 labels: enhancement
 ---

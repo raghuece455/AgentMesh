@@ -1,6 +1,6 @@
 # Security Policy
 
-AgentMesh is `v0.3.0-alpha` — a public alpha for local development and evaluation. It is not yet a hardened production control plane.
+AgentMesh is `v0.4.0` — an alpha for local development, evaluation, and single-team self-hosting. It is not yet a hardened multi-tenant platform.
 
 ---
 
@@ -8,7 +8,8 @@ AgentMesh is `v0.3.0-alpha` — a public alpha for local development and evaluat
 
 | Version | Supported |
 |---|---|
-| `0.3.x-alpha` (current) | ✅ Security fixes accepted |
+| `0.4.x` (current) | ✅ Security fixes accepted |
+| `0.3.x-alpha` | ⚠️ Upgrade to 0.4 — fixes are not backported |
 | `0.1.x` | ❌ No longer maintained |
 
 ---
@@ -62,8 +63,10 @@ We ask that you give us a reasonable window (typically 30 days) before any publi
 
 ## What Is In Scope
 
-- Vulnerabilities in the AgentMesh Python runtime (`src/agentmesh/`)
-- Secret leakage through traces, exports, or logs
+- Vulnerabilities in the AgentMesh Python package (`src/agentmesh/`), including the tracing SDK and client instrumentation
+- The OTLP receiver (`POST /v1/traces`): parsing, decompression, or resource-exhaustion issues
+- The MCP server (`agentmesh mcp`)
+- Secret or prompt-content leakage through traces, exports, logs, or when `AGENTMESH_CAPTURE_CONTENT=false`
 - Authentication bypass in API key mode (`AGENTMESH_AUTH_MODE=api_key`)
 - Permission escalation — an agent calling a tool above its declared permission level
 - SQL injection or data corruption through the SQLite or PostgreSQL store
@@ -87,7 +90,12 @@ We ask that you give us a reasonable window (typically 30 days) before any publi
 | Feature | Detail |
 |---|---|
 | Secret redaction | API keys, tokens, passwords, private keys, AWS credentials, database URLs, cookies, and auth headers are redacted before any trace data is persisted or exported |
-| API key auth | `AGENTMESH_AUTH_MODE=api_key` requires `Authorization: Bearer <key>` for all dashboard API routes |
+| API key auth | `AGENTMESH_AUTH_MODE=api_key` requires `Authorization: Bearer <key>` (or `X-AgentMesh-Api-Key`) for the dashboard API, the live event stream, and `/v1/traces`; keys are compared in constant time. The dashboard prompts for the key and keeps it in the browser's local storage |
+| Content capture controls | `AGENTMESH_CAPTURE_CONTENT=false` (server) or `agentmesh.init(capture_content=False)` (SDK) keeps prompts, completions, tool arguments/results, and retrieval queries out of storage |
+| Ingestion limits | `/v1/traces` rejects bodies larger than `AGENTMESH_MAX_OTLP_BYTES` (32 MiB by default) before and after decompression |
+| Retention | `agentmesh traces prune --older-than 30d` deletes old traces and their spans, calls, events, and scores |
+| Safe Docker default | `docker-compose.yml` publishes the port on `127.0.0.1` only |
+| Alert webhooks | http(s) only, no redirects, URLs and secrets masked in the API and dashboard, optional HMAC-SHA256 signatures |
 | Tool permission levels | `READ`, `WRITE`, `EXECUTE`, `SENSITIVE` — agents are blocked from calling tools above their granted level |
 | Human approval gates | Sensitive tools pause for human approval before executing; decisions are audit-logged |
 | Audit events | Tool calls, approvals, memory writes, and trace exports all create immutable audit records |
@@ -96,10 +104,8 @@ We ask that you give us a reasonable window (typically 30 days) before any publi
 
 | Feature | Target |
 |---|---|
-| User authentication (login) | v0.4 |
-| RBAC — roles and team permissions | v0.5 |
-| Workspace isolation | v0.5 |
-| Full OTLP exporter hardening | v0.4 |
+| User authentication (login) and RBAC | v0.5+ |
+| Workspace isolation | v0.5+ |
 | Hosted deployment security review | v1.0 |
 
 ---

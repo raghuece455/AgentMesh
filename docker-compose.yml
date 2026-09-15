@@ -2,16 +2,25 @@ services:
   dashboard:
     build: .
     environment:
-      AGENTMESH_DB: /data/agentmesh.db
+      # SQLite on the volume by default; docker-compose.postgres.yml switches to PostgreSQL.
+      AGENTMESH_DB_URL: ${AGENTMESH_DB_URL:-/data/agentmesh.db}
       AGENTMESH_DEMO_SEED: ${AGENTMESH_DEMO_SEED:-true}
-      AGENTMESH_AUTH_MODE: none
+      # Set both in a .env file (or your shell) before exposing the port beyond this machine.
+      AGENTMESH_AUTH_MODE: ${AGENTMESH_AUTH_MODE:-none}
+      AGENTMESH_API_KEY: ${AGENTMESH_API_KEY:-}
+      AGENTMESH_CAPTURE_CONTENT: ${AGENTMESH_CAPTURE_CONTENT:-true}
+      AGENTMESH_MAX_OTLP_BYTES: ${AGENTMESH_MAX_OTLP_BYTES:-33554432}
+      AGENTMESH_ALERT_INTERVAL_SECONDS: ${AGENTMESH_ALERT_INTERVAL_SECONDS:-60}
+      AGENTMESH_PUBLIC_URL: ${AGENTMESH_PUBLIC_URL:-}
     command: >
       sh -c "if [ \"$$AGENTMESH_DEMO_SEED\" != \"false\" ]; then
-        agentmesh --db /data/agentmesh.db demo seed --reset;
+        agentmesh demo seed --reset;
       fi;
-      agentmesh --db /data/agentmesh.db dashboard --host 0.0.0.0 --port 8787"
+      agentmesh dashboard --host 0.0.0.0 --port 8787"
     ports:
-      - "8787:8787"
+      # Published on localhost only: auth is off by default. Use "8787:8787" to expose it,
+      # together with AGENTMESH_AUTH_MODE=api_key and AGENTMESH_API_KEY.
+      - "127.0.0.1:8787:8787"
     volumes:
       - agentmesh-data:/data
     healthcheck:

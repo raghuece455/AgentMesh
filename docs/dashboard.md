@@ -49,14 +49,54 @@ The landing page. Answers: *is everything healthy right now?*
 
 The core debugging tool. Answers: *what exactly happened in this run?*
 
-- Search and filter traces by status, agent, date range, cost
-- **Span tree** — nested view: workflow → task → agent → model call → tool call
-- **Waterfall timeline** — horizontal bar chart showing timing and parallelism
+![Trace insights](../dashboard/screenshots/trace-insights.png)
+
+- Search and filter traces by status, workflow, provider/model, and time range
+- **Insights & Scores** — the first failure and the path that led to it, tool-call loops, repeated identical prompts, context-window growth, prompt-cache hit rate, self-time and cost hotspots; click a finding to jump to its span. Thumbs up/down records user feedback as a score.
+- **Session, user, source, and tag badges** for traces sent by the SDK or OpenTelemetry
+- **Span tree** — nested view: workflow → agent → model call → tool call, using span names when available
+- **Waterfall timeline** — horizontal bars showing timing and parallelism
 - **Event table** — every recorded event in chronological order
-- **Span detail panel** — click any span for full inputs, outputs, latency, and metadata
-- **Raw JSON** — view or copy the complete trace
-- **Export** — download as standard JSON or OTEL JSON
+- **Inspector** — click any span for inputs, outputs, prompt, model, and tool details
+- **Export** — download as AgentMesh JSON or OTLP JSON
 - **Replay** — jump straight to Replay Studio for this trace
+
+### Sessions
+
+Answers: *how did this conversation go, turn by turn?*
+
+![Sessions](../dashboard/screenshots/sessions.png)
+
+- Every session with turn count, failed turns, cost, and last activity
+- Each turn's input and output (or error), status, duration, and scores, in order
+- **Open trace** on any turn to debug it
+
+Sessions come from `agentmesh.trace(session_id=...)` in the SDK or the `gen_ai.conversation.id` / `session.id` attribute on OpenTelemetry spans.
+
+### Datasets & Evals
+
+Answers: *did my change make the agent better or worse?*
+
+![Experiment comparison](../dashboard/screenshots/experiment-compare.png)
+
+- Datasets with item counts and last run; create a dataset or add items by hand
+- **Add to dataset** on any trace copies its input (and optionally its output as the expected answer)
+- Experiments per dataset with mean score and pass rate for every evaluator, errors, latency, and cost
+- Open an experiment to see each item's input, expected and actual output, scores, and a link to its trace
+- Pick a baseline and a candidate and **Compare**: regressed items first, score deltas, cost change
+
+See [datasets-and-experiments.md](datasets-and-experiments.md).
+
+### Alerts
+
+Answers: *is anything on fire right now?*
+
+- Rules with their condition, scope, state (firing/ok), last value, notification channel, and last fired time
+- Create rules for failure rate, failed runs, spend, expensive traces, p95 latency, and tool loops
+- **Test** sends a sample notification; **Check now** evaluates every rule immediately
+- Recent notifications with delivery status
+
+Links in the form `/?trace=<trace_id>` open a trace directly (alert notifications use them when `AGENTMESH_PUBLIC_URL` is set), and `/?page=datasets&experiment=<id>` opens an experiment. See [alerts.md](alerts.md).
 
 ### Workflows
 
@@ -114,19 +154,33 @@ Answers: *which document or memory record influenced this answer?*
 
 Answers: *what is waiting for my review?*
 
-- Pending approval queue, sorted by time
-- Expand any request to see the full tool arguments
-- Approve or reject with an optional reason
-- Full history of past decisions
+- Approval queue with tool, agent, workflow, risk level, and status
+- The full tool arguments for each request
+- Approve or reject in one click (the API also accepts a reason)
+- History of past decisions
 
 ### Replay Studio
 
-Answers: *how would the run have gone differently?*
+Answers: *what did the recorded run actually do?*
 
-- Browse all checkpoints for a trace (timeline view)
-- Inspect full memory state at any checkpoint
-- Patch memory values inline and re-run from that point
-- Compare original run vs replayed run side by side
+![Replay Studio](../dashboard/screenshots/replay-studio.png)
+
+- Replay the whole trace, or from the span selected in the Trace Explorer
+- Deterministic mode uses recorded model and tool outputs, with side effects disabled
+- The replay result — prompts, outputs, tool calls, agent interactions, and checkpoints — as JSON
+
+To change memory at a checkpoint and continue from there, use the CLI: `agentmesh checkpoints patch-memory <checkpoint_id> --set '{...}'` (see [replay.md](replay.md)).
+
+### Connect
+
+Answers: *how do I send my own agent's traces here?*
+
+- The server's OTLP endpoint, whether protobuf ingestion is enabled, auth mode, and content-capture setting
+- Copy-paste setup for any OpenTelemetry app, the Python and TypeScript SDKs, the OpenAI Agents SDK, Pydantic AI, and the MCP server
+
+### Evaluations
+
+Headline quality metrics and every evaluation and score, from the runtime, the SDK, the API, dashboard feedback, and OpenTelemetry evaluation events. See [evaluations.md](evaluations.md).
 
 ---
 
@@ -156,20 +210,24 @@ cd dashboard
 npm run screenshots
 ```
 
-Screenshots are written to `dashboard/screenshots/`. They appear in the README and HOW_IT_WORKS.md.
+Screenshots are written to `dashboard/screenshots/` and appear in the README and this page.
 
 ---
 
 ## Live Updates
 
-The dashboard subscribes to live events via Server-Sent Events:
+The dashboard subscribes to the server-sent event stream and refreshes shortly after new events arrive, including spans ingested over OTLP or from the SDK:
 
 ```
-GET /api/events/stream
-WS  /ws/events
+GET /api/events/live     (also /api/events/stream)
+WS  /ws/events           (for other clients)
 ```
 
-Workflow status, agent status, and approval events all update in real time without refreshing the page.
+---
+
+## Using the Dashboard with API-Key Auth
+
+When the server runs with `AGENTMESH_AUTH_MODE=api_key`, the dashboard shows an **API key required** prompt on first load. The key is kept in that browser's local storage and sent with every API call and the live event stream. Enter a new key the same way if it changes.
 
 ---
 
@@ -181,4 +239,4 @@ See [api_reference.md](api_reference.md) for the full list of REST endpoints, qu
 
 ## Light and Dark Mode
 
-Toggle in the top-right corner of the dashboard. Preference is saved in `localStorage`.
+Use the **Theme** button in the sidebar or the top bar. The choice lasts for the current page session.

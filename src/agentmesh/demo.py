@@ -10,8 +10,16 @@ from agentmesh.types import JsonObject
 
 
 def seed_demo_data(db_path: str | Path = ".agentmesh/agentmesh.db", reset: bool = False) -> JsonObject:
-    path = Path(db_path)
     reset_mode = "none"
+    if str(db_path).startswith(("postgresql://", "postgres://")):
+        from agentmesh.stores import create_store
+
+        store = create_store(str(db_path))
+        if reset:
+            store.reset_local_data()
+            reset_mode = "in_place"
+        return _seed(store, str(db_path), reset, reset_mode)
+    path = Path(str(db_path).removeprefix("sqlite:///"))
     if reset and path.exists():
         try:
             path.unlink()
@@ -40,7 +48,13 @@ def seed_demo_data(db_path: str | Path = ".agentmesh/agentmesh.db", reset: bool 
             store = SQLiteStore(path)
     else:
         store = SQLiteStore(path)
+    return _seed(store, str(path), reset, reset_mode)
+
+
+def _seed(store: SQLiteStore, database: str, reset: bool, reset_mode: str) -> JsonObject:
     recorder = TraceRecorder(store, logger=_quiet_logger())
+    # Experiments first, so their traces sort below the headline demo traces.
+    experiments = _seed_support_experiments(store)
     traces = [
         _seed_research_pipeline(store, recorder),
         _seed_rag_answer(store, recorder),
@@ -49,8 +63,15 @@ def seed_demo_data(db_path: str | Path = ".agentmesh/agentmesh.db", reset: bool 
         _seed_cost_heavy_run(store, recorder),
         _seed_replay_run(store, recorder),
     ]
+    session_traces = _seed_otel_support_session(store)
+    traces.extend(session_traces)
+    store.add_trace_to_dataset("support-answers", session_traces[1], metadata={"note": "approved answer from production"})
+    alerts = _seed_alert_rules(store)
+    store.close()
     return {
-        "database": str(path),
+        "experiments": experiments,
+        "alert_rules": alerts,
+        "database": database,
         "demo": True,
         "reset": reset,
         "reset_mode": reset_mode,
@@ -58,6 +79,198 @@ def seed_demo_data(db_path: str | Path = ".agentmesh/agentmesh.db", reset: bool 
         "trace_ids": traces,
         "message": "Seeded realistic AgentMesh observability data.",
     }
+
+
+def _seed_otel_support_session(store: SQLiteStore) -> list[str]:
+    """A three-turn support chat as an external OpenTelemetry-instrumented app would send it.
+
+    Turn 3 contains a tool loop so the insights engine has something to find.
+    """
+    import json
+    import secrets
+    from datetime import UTC, datetime, timedelta
+
+    from agentmesh.ingest import SpanData
+
+    resource = {"service.name": "support-chat", "deployment.environment.name": "demo", "telemetry.sdk.language": "python"}
+    session = {"gen_ai.conversation.id": "demo-chat-1001", "user.id": "customer-88"}
+    turns = [
+        ("Where is my order A-1001?", "Your order shipped yesterday and arrives Friday.", 0),
+        ("Can I change the delivery address?", "Yes. I updated the address to 42 Harbor Road.", 0),
+        ("Refund the shipping fee please.", None, 4),
+    ]
+    start = datetime.now(UTC) - timedelta(minutes=30)
+    trace_ids: list[str] = []
+    for index, (question, answer, loop_calls) in enumerate(turns):
+        trace_id = secrets.token_hex(16)
+        trace_ids.append(trace_id)
+        root_id = secrets.token_hex(8)
+        cursor = start + timedelta(minutes=index * 5)
+
+        def at(offset_ms: float, base: datetime = cursor) -> str:
+            return (base + timedelta(milliseconds=offset_ms)).isoformat(timespec="microseconds")
+
+        spans: list[SpanData] = []
+        context_tokens = 3_000 + index * 4_000
+        clock = 20.0
+        llm_calls = 2 + loop_calls
+        for call in range(llm_calls):
+            prompt_tokens = context_tokens + call * 9_000
+            spans.append(
+                SpanData(
+                    trace_id=trace_id,
+                    span_id=secrets.token_hex(8),
+                    parent_span_id=root_id,
+                    name="chat claude-sonnet-5",
+                    kind="CLIENT",
+                    start_time=at(clock),
+                    end_time=at(clock + 900 + call * 150),
+                    status="ok",
+                    attributes={
+                        "gen_ai.operation.name": "chat",
+                        "gen_ai.provider.name": "anthropic",
+                        "gen_ai.request.model": "claude-sonnet-5",
+                        "gen_ai.usage.input_tokens": prompt_tokens,
+                        "gen_ai.usage.cache_read.input_tokens": 2_400 if index else 0,
+                        "gen_ai.usage.output_tokens": 180 + call * 20,
+                        "gen_ai.input.messages": json.dumps([{"role": "user", "parts": [{"type": "text", "content": question}]}]),
+                        **session,
+                    },
+                    resource=resource,
+                )
+            )
+            clock += 1_000 + call * 150
+            if call < llm_calls - 1:
+                failed = loop_calls and call >= 1
+                spans.append(
+                    SpanData(
+                        trace_id=trace_id,
+                        span_id=secrets.token_hex(8),
+                        parent_span_id=root_id,
+                        name="execute_tool issue_refund" if loop_calls else "execute_tool lookup_order",
+                        start_time=at(clock),
+                        end_time=at(clock + 350),
+                        status="error" if failed else "ok",
+                        status_message="Payments API returned 409: refund already pending" if failed else None,
+                        attributes={
+                            "gen_ai.operation.name": "execute_tool",
+                            "gen_ai.tool.name": "issue_refund" if loop_calls else "lookup_order",
+                            "gen_ai.tool.call.arguments": json.dumps({"order_id": "A-1001", "amount": 4.99} if loop_calls else {"order_id": "A-1001"}),
+                            "gen_ai.tool.call.result": None if loop_calls else json.dumps({"status": "shipped", "eta": "Friday"}),
+                            **({"error.type": "PaymentsConflict"} if failed else {}),
+                            **session,
+                        },
+                        resource=resource,
+                    )
+                )
+                clock += 400
+        spans.append(
+            SpanData(
+                trace_id=trace_id,
+                span_id=root_id,
+                name="invoke_agent support_agent",
+                start_time=at(0),
+                end_time=at(clock + 50),
+                status="error" if answer is None else "ok",
+                status_message="Gave up after repeated refund failures" if answer is None else None,
+                attributes={
+                    "gen_ai.operation.name": "invoke_agent",
+                    "gen_ai.agent.name": "support_agent",
+                    "input.value": question,
+                    "output.value": answer,
+                    "tag.tags": ["demo", "support"],
+                    **session,
+                },
+                resource=resource,
+            )
+        )
+        store.ingest_spans(spans, source="otlp")
+        if answer is not None:
+            store.save_score({"trace_id": trace_id, "name": "user_feedback", "value": True, "source": "feedback"})
+        else:
+            store.save_score({"trace_id": trace_id, "name": "user_feedback", "value": False, "comment": "Refund never happened", "source": "feedback"})
+    return trace_ids
+
+
+SUPPORT_QUESTIONS = [
+    ("How long do refunds take?", "Refunds reach your card within 5 business days."),
+    ("Can I change my delivery address after ordering?", "Yes, until the order ships: open the order and choose Change address."),
+    ("Do you ship to Canada?", "Yes, we ship to Canada in 4-7 business days."),
+    ("How do I reset my password?", "Use Forgot password on the sign-in page to get a reset link."),
+]
+
+
+def _seed_support_experiments(store: SQLiteStore) -> list[str]:
+    """Two prompt versions of a support bot run over the same dataset, scored by evaluators.
+
+    Uses the real experiment runner (every item gets a trace), with deterministic stand-ins
+    for the model and the LLM judge.
+    """
+    from agentmesh import sdk
+    from agentmesh.evaluators import Contains, LLMJudge
+    from agentmesh.experiments import run_experiment
+
+    if store.get_dataset("support-answers", include_items=False) is None:
+        store.create_dataset("support-answers", "Real customer questions with approved answers")
+        store.add_dataset_items(
+            "support-answers",
+            [{"input": {"question": question}, "expected": answer, "metadata": {"source": "demo"}} for question, answer in SUPPORT_QUESTIONS],
+        )
+
+    class _StoreExporter(sdk.SpanExporter):
+        def export(self, spans: list[object]) -> None:
+            store.ingest_spans(spans, source="sdk")
+
+        def send_score(self, payload: JsonObject) -> None:
+            store.save_score(payload)
+
+    answers = dict(SUPPORT_QUESTIONS)
+    v1_answers = {
+        "How long do refunds take?": "Refunds usually take a while depending on your bank.",
+        "Do you ship to Canada?": "We ship to many countries.",
+    }
+
+    def prompt_v1(input: JsonObject) -> str:
+        return v1_answers.get(str(input["question"]), answers[str(input["question"])])
+
+    def prompt_v2(input: JsonObject) -> str:
+        question = str(input["question"])
+        if question.startswith("How do I reset"):
+            raise TimeoutError("model call timed out after 30s")
+        return answers[question]
+
+    def demo_judge(prompt: str) -> str:
+        output = prompt.split("Actual output:", 1)[1]
+        grounded = any(marker in output for marker in ("5 business days", "4-7 business days", "Change address", "reset link"))
+        return '{"score": 0.95, "reason": "Matches the approved answer"}' if grounded else '{"score": 0.3, "reason": "Vague; misses the specifics in the reference"}'
+
+    evaluators = [Contains(name="has_key_facts"), LLMJudge("correctness", judge=demo_judge)]
+    previous = sdk._client
+    sdk._client = sdk.AgentMeshClient(sdk.AgentMeshConfig(service_name="support-bot-evals", environment="demo"), _StoreExporter())
+    try:
+        runs = [
+            run_experiment("support-answers", prompt_v1, evaluators, name="support-bot prompt-v1", metadata={"model": "claude-haiku-4-5"}, store=store),
+            run_experiment("support-answers", prompt_v2, evaluators, name="support-bot prompt-v2", metadata={"model": "claude-sonnet-5"}, store=store),
+        ]
+    finally:
+        sdk._client.shutdown()
+        sdk._client = previous
+    return [run.experiment_id for run in runs]
+
+
+def _seed_alert_rules(store: SQLiteStore) -> list[str]:
+    rules = [
+        {"name": "Any failed run", "kind": "failure_count", "threshold": 1, "window": "1d", "cooldown": "1h"},
+        {"name": "Expensive trace", "kind": "trace_cost", "threshold": 0.05, "window": "1d"},
+        {"name": "Agent tool loops", "kind": "loop_detected", "threshold": 3, "window": "1d"},
+        {"name": "Hourly spend", "kind": "cost", "threshold": 25, "window": "1h"},
+    ]
+    existing = {rule["name"] for rule in store.list_alert_rules()}
+    for rule in rules:
+        if rule["name"] not in existing:
+            store.create_alert_rule(rule)
+    store.check_alerts(deliver=False)
+    return [rule["name"] for rule in rules]
 
 
 def _quiet_logger() -> logging.Logger:
@@ -326,7 +539,7 @@ def _seed_replay_run(store: SQLiteStore, recorder: TraceRecorder) -> str:
     agent_span = recorder.event(trace_id, "agent.started", "regression_agent", {"role": "Regression tester"})
     checkpoint_id = store.save_checkpoint(trace_id, "before_step", {"workflow_memory": {"values": {"version": "v1"}}, "demo": True}, "regression-step")
     recorder.event(trace_id, "checkpoint.saved", "workflow", {"checkpoint_id": checkpoint_id, "checkpoint_type": "before_step", "step_id": "regression-step"}, parent_span_id=agent_span)
-    recorder.event(trace_id, "model.response", "regression_agent", {"provider": "mock", "model": "mock-model", "output": "Deterministic replay output", "prompt_tokens": 42, "completion_tokens": 8, "total_tokens": 50, "estimated_cost": 0, "latency_ms": 12, "metadata": {"demo": True, "task_id": "regression-step"}}, parent_span_id=agent_span)
+    recorder.event(trace_id, "model.response", "regression_agent", {"provider": "mock", "model": "mock-model", "output": "Deterministic replay output", "prompt_tokens": 42, "completion_tokens": 8, "total_tokens": 50, "estimated_cost": 0, "cost_status": "local/free", "latency_ms": 12, "metadata": {"demo": True, "task_id": "regression-step"}}, parent_span_id=agent_span)
     recorder.finish_workflow(trace_id, "succeeded", {"output": "Deterministic replay output"})
     replay = recorder.store.export_trace(trace_id)
     store.create_replay(trace_id, None, "deterministic", replay)

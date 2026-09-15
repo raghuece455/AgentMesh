@@ -1,4 +1,6 @@
-import { Copy, RefreshCw, Wifi, WifiOff } from 'lucide-react'
+import { Copy, KeyRound, RefreshCw, Wifi, WifiOff } from 'lucide-react'
+import { useState } from 'react'
+import { isUnauthorizedError } from '../../api'
 import type { ConnectionState } from '../../appTypes'
 import type { JsonRecord, ModelUsage, ProviderHealth, WorkflowSummary } from '../../types'
 import { formatTime, scopeFromFilters, stringValue } from '../../utils/format'
@@ -103,9 +105,41 @@ export function GlobalFilters({
   )
 }
 
-export function ConnectionDiagnostics({ connection, error, onRetry }: { connection: ConnectionState; error: string; onRetry: () => void }) {
+export function ConnectionDiagnostics({ connection, error, onRetry, onApiKey }: { connection: ConnectionState; error: string; onRetry: () => void; onApiKey: (key: string) => void }) {
+  const [keyInput, setKeyInput] = useState('')
   if (!error && connection.backendStatus === 'ok')
     return null
+  if (isUnauthorizedError(connection.lastError || error)) {
+    return (
+      <section className="rounded-3xl border border-sky-200/28 bg-sky-500/10 p-4">
+        <form
+          className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between"
+          onSubmit={event => {
+            event.preventDefault()
+            onApiKey(keyInput.trim())
+            setKeyInput('')
+          }}
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm/6 font-semibold text-sky-50"><KeyRound className="size-4" />API key required</div>
+            <div className="mt-1 text-sm/6 text-sky-50/78">This server runs with AGENTMESH_AUTH_MODE=api_key. The key is stored in this browser only.</div>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <input
+              type="password"
+              autoComplete="off"
+              aria-label="AgentMesh API key"
+              placeholder="AGENTMESH_API_KEY"
+              className="h-9 w-64 rounded-xl border border-white/16 bg-slate-950/40 px-3 text-sm/6 text-white placeholder:text-white/40"
+              value={keyInput}
+              onChange={event => setKeyInput(event.target.value)}
+            />
+            <button type="submit" className="trace-action" disabled={!keyInput.trim()}><KeyRound className="size-4" />Unlock</button>
+          </div>
+        </form>
+      </section>
+    )
+  }
   const diagnostics = {
     failed_endpoint: connection.lastFailedEndpoint,
     error: connection.lastError || error,

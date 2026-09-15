@@ -21,3 +21,6 @@ dashboard/tsconfig.tsbuildinfo
 
 # Local secrets
 .env
+
+# Node.js dependencies outside the dashboard (TypeScript SDK)
+node_modules/

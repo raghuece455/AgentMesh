@@ -11,14 +11,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Build dashboard
+        run: |
+          cd dashboard
+          npm ci
+          npm run build
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
       - name: Build package
+        env:
+          # Fail the release instead of publishing a wheel without the React dashboard.
+          AGENTMESH_REQUIRE_DASHBOARD: "1"
         run: |
           python -m pip install build
           python -m build
+      - name: Verify the wheel ships the dashboard
+        run: |
+          python - <<'EOF'
+          import glob
+          import zipfile
+
+          wheel = glob.glob("dist/*.whl")[0]
+          names = set(zipfile.ZipFile(wheel).namelist())
+          assert "agentmesh/dashboard_dist/index.html" in names, f"{wheel} is missing the dashboard"
+          assert any(name.startswith("agentmesh/dashboard_dist/assets/") and name.endswith(".js") for name in names)
+          print(f"{wheel} contains the React dashboard")
+          EOF
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

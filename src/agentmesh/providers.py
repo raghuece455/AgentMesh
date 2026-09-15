@@ -124,8 +124,13 @@ class OpenAICompatibleProvider:
         )
         choice = decoded.get("choices", [{}])[0]
         message = choice.get("message", {})
-        usage = decoded.get("usage", {})
+        usage = decoded.get("usage", {}) if isinstance(decoded.get("usage"), dict) else {}
         raw = safe_json(decoded) if isinstance(decoded, dict) else {}
+        if isinstance(raw, dict):
+            prompt_details = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+            completion_details = usage.get("completion_tokens_details") if isinstance(usage.get("completion_tokens_details"), dict) else {}
+            raw["cached_tokens"] = int(prompt_details.get("cached_tokens") or 0)
+            raw["reasoning_tokens"] = int(completion_details.get("reasoning_tokens") or 0)
         return ModelResponse(
             text=str(message.get("content", "")),
             model=str(decoded.get("model", request.model or self.model)),
@@ -180,7 +185,7 @@ class AnthropicProvider:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-sonnet-4-5",
+        model: str = "claude-sonnet-5",
         base_url: str = "https://api.anthropic.com",
         timeout_seconds: float = 60.0,
     ) -> None:
@@ -218,12 +223,19 @@ class AnthropicProvider:
         if isinstance(content, list):
             text = "\n".join(str(item.get("text", "")) for item in content if isinstance(item, dict))
         usage = decoded.get("usage", {}) if isinstance(decoded.get("usage", {}), dict) else {}
+        cache_read = int(usage.get("cache_read_input_tokens") or 0)
+        cache_write = int(usage.get("cache_creation_input_tokens") or 0)
+        raw = safe_json(decoded) if isinstance(decoded, dict) else {}
+        if isinstance(raw, dict):
+            raw["cached_tokens"] = cache_read
+            raw["cache_write_tokens"] = cache_write
         return ModelResponse(
             text=text,
             model=str(decoded.get("model", request.model or self.model)),
-            prompt_tokens=int(usage.get("input_tokens", estimate_tokens(request.prompt))),
+            # Anthropic's input_tokens excludes cache reads/writes; count them as input.
+            prompt_tokens=int(usage.get("input_tokens", estimate_tokens(request.prompt))) + cache_read + cache_write,
             completion_tokens=int(usage.get("output_tokens", estimate_tokens(text))),
-            raw=safe_json(decoded) if isinstance(decoded, dict) else {},
+            raw=raw if isinstance(raw, dict) else {},
         )
 
 
