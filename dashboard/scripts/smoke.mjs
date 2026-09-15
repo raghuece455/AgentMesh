@@ -35,21 +35,33 @@ async function main() {
     await client.send('Page.enable')
     await client.send('Runtime.enable')
     await client.send('Page.navigate', { url: baseUrl })
-    await waitForText(client, ['Trace-first Agent Observability', 'Recent Traces', 'Failure Inbox', 'Provider Health'])
+    await waitForText(client, ['Overview', 'Trace volume', 'Issues', 'Spend by model', 'Recent traces', 'Providers'])
     await waitForText(client, ['replay-regression-demo'])
-    await assertText(client, 'Cost Status')
-    await assertText(client, 'Backend')
-    await assertText(client, 'Open')
-    await clickButtonByText(client, 'Open')
-    await waitForText(client, ['Trace Explorer', 'Trace Detail', 'Span Tree', 'Waterfall Timeline', 'Inspector'])
-    await assertText(client, 'Summary')
-    await assertText(client, 'Cost')
-    await assertText(client, 'Export OTEL JSON')
+    await assertText(client, 'Needs attention')
+    await assertText(client, 'Error rate')
+    await clickButtonByText(client, 'Traces')
+    await waitForText(client, ['More filters', 'Duration', 'support_agent'])
+    await clickRowByText(client, 'support_agent')
+    await waitForText(client, ['All traces', 'Insights', 'Timeline', 'Events', 'Overview', 'Input', 'Output'])
+    await assertText(client, 'identical arguments')
+    await assertText(client, 'Add to dataset')
+    await clickButtonByText(client, 'Export')
+    await waitForText(client, ['AgentMesh JSON', 'OpenTelemetry JSON'])
     await screenshot(client, join(screenshotDir, 'trace-detail-smoke.png'))
+    await pressKey(client, 'Escape')
+    await clickButtonByText(client, 'Compare')
+    await waitForText(client, ['Compare traces', 'same workflow'])
+    await clickButtonByText(client, 'support_agent')
+    await waitForText(client, ['Compared vs this', 'Execution steps', 'Failed spans'])
+    await pressKey(client, 'Escape')
+    await clickButtonByText(client, 'Errors only')
+    await waitForText(client, ['spans match'])
     await clickButtonByText(client, 'Costs')
-    await waitForText(client, ['Cost Confidence', 'Cost By Workflow'])
+    await waitForText(client, ['Monthly budget', 'Spend over time', 'By model'])
     await clickButtonByText(client, 'Replay')
-    await waitForText(client, ['Replay Controls', 'Replay Comparison'])
+    await waitForText(client, ['Replay a trace', 'Checkpoints'])
+    await clickButtonByText(client, 'Replay full trace')
+    await waitForText(client, ['Replay result'])
     client.close()
     console.log('Dashboard smoke test passed.')
   }
@@ -189,6 +201,25 @@ async function clickButtonByText(client, text) {
   const result = await client.send('Runtime.evaluate', { expression, returnByValue: true })
   if (!result.result.result.value)
     fail(`Button not found: ${text}`)
+}
+
+async function pressKey(client, key) {
+  await client.send('Runtime.evaluate', { expression: `window.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)} }))` })
+  await sleep(300)
+}
+
+async function clickRowByText(client, text) {
+  const expression = `
+    (() => {
+      const row = [...document.querySelectorAll('tbody tr')].find(item => item.innerText.includes(${JSON.stringify(text)}));
+      if (!row) return false;
+      row.click();
+      return true;
+    })()
+  `
+  const result = await client.send('Runtime.evaluate', { expression, returnByValue: true })
+  if (!result.result.result.value)
+    fail(`Table row not found: ${text}`)
 }
 
 async function screenshot(client, file) {

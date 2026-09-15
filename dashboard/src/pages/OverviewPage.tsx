@@ -1,156 +1,282 @@
-import { AlertTriangle, BarChart3, CheckCircle2, CircleDollarSign, Gauge, ListTree, Route, ShieldCheck, UserCheck, WalletCards, Wifi, Wrench, Zap } from 'lucide-react'
-import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { CostCenterSummary, ModelCallRecord, ModelUsage, OverviewData, ProviderHealth, TimeseriesData, ToolCallRecord, TraceSummary } from '../types'
-import type { LiveEventRecord } from '../appTypes'
-import { formatMoney, formatMs, formatNumber, formatPercent, formatTime } from '../utils/format'
-import { Badge, CostStatusBadge, StatusDot } from '../components/common/Badges'
-import { ChartFrame, EmptyState, MetricCard, Panel } from '../components/common/Cards'
-import { TracesTable } from '../components/trace/TracesTable'
-import { FailureInbox } from '../components/trace/FailureInbox'
-import { ProviderHealthPanel } from '../components/provider/ProviderHealthPanel'
-
-const chartColors = ['#38bdf8', '#2f8cff', '#5eead4', '#a3e635', '#fbbf24', '#fb7185', '#c084fc']
+import { Activity, AlertOctagon, ArrowRight, BellRing, Coins, Gauge, Plug, Radio, Timer, Waypoints } from 'lucide-react'
+import { useMemo } from 'react'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import type { LiveEventRecord, Section } from '../appTypes'
+import { Badge, StatusBadge, StatusDot } from '../components/ui/Badge'
+import { Button } from '../components/ui/Button'
+import { Card, EmptyState, Meter, PageHeader, Skeleton } from '../components/ui/Card'
+import { axisProps, ChartLegend, ChartTooltip, gridProps } from '../components/ui/Chart'
+import { DataTable } from '../components/ui/DataTable'
+import { StatCard } from '../components/ui/Stat'
+import type { CostCenterSummary, ModelUsage, OverviewData, ProviderHealth, TraceSummary } from '../types'
+import { formatCompact, formatMoney, formatMs, formatNumber, formatPercent, formatRelative, numeric } from '../utils/format'
+import { buildSeries, groupIssues, percentile, TIME_RANGES, traceDuration, type TimeRange } from '../utils/traces'
+import type { TraceFilters } from './TracesPage'
 
 export function OverviewPage({
-  overview,
-  timeseries,
+  loaded,
   traces,
+  range,
+  overview,
   providers,
   models,
-  modelCalls,
-  toolCalls,
   costs,
   liveEvents,
-  onTraceSelect,
-  onExport,
-  onReplay,
-  onCompare,
+  pendingApprovals,
+  firingAlerts,
+  onTrace,
+  onSection,
+  onFilterTraces,
 }: {
-  overview: OverviewData | null
-  timeseries: TimeseriesData
+  loaded: boolean
   traces: TraceSummary[]
+  range: TimeRange
+  overview: OverviewData | null
   providers: ProviderHealth[]
   models: ModelUsage[]
-  modelCalls: ModelCallRecord[]
-  toolCalls: ToolCallRecord[]
   costs: CostCenterSummary | null
   liveEvents: LiveEventRecord[]
-  onTraceSelect: (traceId: string) => void
-  onExport: (traceId: string) => void
-  onReplay: (traceId: string) => void
-  onCompare: (traceId: string) => void
+  pendingApprovals: number
+  firingAlerts: number
+  onTrace: (traceId: string) => void
+  onSection: (section: Section) => void
+  onFilterTraces: (filters: TraceFilters) => void
 }) {
-  const points = timeseries.points
-  const healthyProviders = providers.filter(provider => provider.status === 'healthy').length
-  const failureCount = traces.filter(trace => trace.status === 'failed').length
-  const recentTraces = overview?.recent_traces?.length ? overview.recent_traces : traces
-  const failures = overview?.recent_failures?.length ? overview.recent_failures : traces.filter(trace => trace.status === 'failed').slice(0, 8)
+  const series = useMemo(() => buildSeries(traces, range), [traces, range])
+  const issues = useMemo(() => groupIssues(traces), [traces])
+  const rangeTitle = TIME_RANGES.find(item => item.value === range)?.title ?? ''
+
+  const total = traces.length
+  const errors = traces.filter(trace => trace.status === 'failed').length
+  const errorRate = total ? errors / total : 0
+  const durations = traces.map(traceDuration).filter(Boolean)
+  const p95 = percentile(durations, 95)
+  const p50 = percentile(durations, 50)
+  const tokens = traces.reduce((sum, trace) => sum + numeric(trace.total_tokens), 0)
+  const cost = traces.reduce((sum, trace) => sum + numeric(trace.estimated_cost), 0)
+  const attention = firingAlerts + pendingApprovals + issues.length
+
+  if (!loaded) {
+    return (
+      <>
+        <PageHeader title="Overview" description="Loading observability data..." />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">{Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-[106px] rounded-xl" />)}</div>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3"><Skeleton className="h-72 rounded-xl xl:col-span-2" /><Skeleton className="h-72 rounded-xl" /></div>
+      </>
+    )
+  }
+
+  const activeProviders = providers.filter(provider => provider.status !== 'not_configured' && provider.status !== 'planned')
+  const idleProviders = providers.length - activeProviders.length
+  const topModels = [...models].sort((a, b) => numeric(b.estimated_cost) - numeric(a.estimated_cost) || numeric(b.total_tokens) - numeric(a.total_tokens)).slice(0, 6)
+  const maxModelCost = Math.max(...topModels.map(model => numeric(model.estimated_cost)), 0)
+  const maxModelTokens = Math.max(...topModels.map(model => numeric(model.total_tokens)), 0)
+
   return (
-    <div className="flex flex-col gap-4">
-      <Panel title="Trace Launchpad" icon={<Route className="size-4" />}>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-4 xl:grid-cols-8">
-          <MetricCard compact icon={<Route className="size-4" />} label="Runs" value={overview?.runs_today ?? traces.length} />
-          <MetricCard compact icon={<CheckCircle2 className="size-4" />} label="Success rate" value={formatPercent(overview?.success_rate)} tone="good" />
-          <MetricCard compact icon={<AlertTriangle className="size-4" />} label="Failures" value={failureCount} tone={failureCount ? 'danger' : 'good'} />
-          <MetricCard compact icon={<BarChart3 className="size-4" />} label="Avg latency" value={formatMs(overview?.average_latency_ms)} />
-          <MetricCard compact icon={<CircleDollarSign className="size-4" />} label="Total cost" value={formatMoney(overview?.total_cost)} tone="money" />
-          <MetricCard compact icon={<UserCheck className="size-4" />} label="Approvals" value={overview?.pending_approvals ?? 0} tone="warn" />
-          <MetricCard compact icon={<ShieldCheck className="size-4" />} label="Provider health" value={`${healthyProviders} healthy / ${providers.length || 0} configured`} tone={healthyProviders === providers.length ? 'good' : 'warn'} />
-          <MetricCard compact icon={<WalletCards className="size-4" />} label="Budget used" value={formatPercent(overview?.budget_used)} tone="money" />
-        </div>
-      </Panel>
+    <>
+      <PageHeader
+        title="Overview"
+        description={`${rangeTitle} across every agent, workflow, and model.`}
+        actions={<Button icon={<Plug />} onClick={() => onSection('connect')}>Connect an agent</Button>}
+      />
 
-      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,0.75fr)]">
-        <Panel title="Recent Traces" icon={<ListTree className="size-4" />} actions={<Badge tone="info" outline>trace-first</Badge>}>
-          <TracesTable traces={recentTraces} modelCalls={modelCalls} toolCalls={toolCalls} onOpen={onTraceSelect} onReplay={onReplay} onExport={onExport} onCompare={onCompare} />
-        </Panel>
-        <div className="flex flex-col gap-4">
-          <Panel title="Failure Inbox" icon={<AlertTriangle className="size-4" />}>
-            <FailureInbox traces={failures} modelCalls={modelCalls} toolCalls={toolCalls} onOpen={onTraceSelect} onReplay={onReplay} onExport={onExport} />
-          </Panel>
-          <Panel title="Provider Health" icon={<ShieldCheck className="size-4" />}>
-            <ProviderHealthPanel providers={providers} />
-          </Panel>
-        </div>
-      </div>
+      {total === 0 && (
+        <Card>
+          <EmptyState
+            icon={<Waypoints />}
+            title={`No traces in the ${rangeTitle.toLowerCase()}`}
+            detail="Point any OpenTelemetry exporter or the AgentMesh Python and TypeScript SDKs at this server, or widen the time range."
+            action={<Button variant="primary" icon={<Plug />} onClick={() => onSection('connect')}>Send your first trace</Button>}
+          />
+        </Card>
+      )}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-        <Panel title="Cost and Token Trend" icon={<BarChart3 className="size-4" />} className="xl:col-span-8">
-          <ChartFrame dense>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={points}>
-                <CartesianGrid stroke="rgb(255 255 255 / 12%)" />
-                <XAxis dataKey="bucket" tick={{ fill: 'rgb(255 255 255 / 64%)', fontSize: 11 }} />
-                <YAxis tick={{ fill: 'rgb(255 255 255 / 64%)', fontSize: 11 }} />
-                <Tooltip contentStyle={{ background: '#111827', border: '1px solid rgb(255 255 255 / 18%)', color: '#fff' }} />
-                <Area type="monotone" dataKey="cost" stroke="#fbbf24" fill="#fbbf24" fillOpacity={0.18} />
-                <Area type="monotone" dataKey="tokens" stroke="#5eead4" fill="#5eead4" fillOpacity={0.1} />
-                <Area type="monotone" dataKey="failures" stroke="#fb7185" fill="#fb7185" fillOpacity={0.12} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </ChartFrame>
-        </Panel>
-        <Panel title="Live Event Stream" icon={<Wifi className="size-4" />} className="xl:col-span-4">
-          <LiveEventStream events={liveEvents} />
-        </Panel>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 2xl:grid-cols-6">
+        <StatCard label="Traces" icon={<Waypoints />} value={formatNumber(total)} sub={`${formatNumber(total - errors)} ok · ${formatNumber(errors)} failed`} spark={series.map(point => point.runs)} onClick={() => onFilterTraces({})} />
+        <StatCard label="Error rate" icon={<AlertOctagon />} value={formatPercent(errorRate)} sub={`${errors} failed traces`} tone={errorRate > 0.1 ? 'danger' : errorRate > 0 ? 'warning' : 'neutral'} spark={series.map(point => point.errors)} sparkColor="var(--danger)" onClick={() => onFilterTraces({ status: 'failed' })} />
+        <StatCard label="p95 latency" icon={<Timer />} value={formatMs(p95)} sub={`p50 ${formatMs(p50)}`} spark={series.map(point => point.p95)} sparkColor="var(--chart-5)" />
+        <StatCard label="Tokens" icon={<Gauge />} value={formatCompact(tokens)} sub={`${formatNumber(overview?.total_tokens ?? tokens)} all time`} spark={series.map(point => point.tokens)} sparkColor="var(--chart-2)" />
+        <StatCard label="Cost" icon={<Coins />} value={formatMoney(cost)} sub={costs ? `${formatPercent(costs.budget_used)} of monthly budget` : undefined} spark={series.map(point => point.cost)} sparkColor="var(--chart-3)" onClick={() => onSection('costs')} />
+        <StatCard
+          label="Needs attention"
+          icon={<BellRing />}
+          value={formatNumber(attention)}
+          tone={firingAlerts ? 'danger' : attention ? 'warning' : 'neutral'}
+          sub={`${firingAlerts} alerts · ${pendingApprovals} approvals · ${issues.length} issues`}
+          onClick={() => onSection(firingAlerts ? 'alerts' : pendingApprovals ? 'approvals' : 'traces')}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Panel title="Model Usage Split" icon={<Zap className="size-4" />}>
-          <ChartFrame dense>
+        <Card
+          className="xl:col-span-2"
+          title="Trace volume"
+          description="Successful and failed traces per interval"
+          actions={<ChartLegend items={[{ label: 'Success', color: 'var(--chart-1)', value: formatNumber(total - errors) }, { label: 'Failed', color: 'var(--danger)', value: formatNumber(errors) }]} />}
+        >
+          <div className="h-60">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={models} dataKey="total_tokens" nameKey="model" innerRadius={48} outerRadius={78} paddingAngle={3}>
-                  {models.map((_, index) => <Cell key={index} fill={chartColors[index % chartColors.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ background: '#111827', border: '1px solid rgb(255 255 255 / 18%)', color: '#fff' }} />
-              </PieChart>
+              <BarChart data={series} barCategoryGap={2} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
+                <CartesianGrid {...gridProps} />
+                <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" minTickGap={40} />
+                <YAxis {...axisProps} allowDecimals={false} width={44} />
+                <Tooltip cursor={{ fill: 'var(--surface-2)' }} content={<ChartTooltip />} />
+                <Bar dataKey="ok" name="Success" stackId="runs" fill="var(--chart-1)" radius={[0, 0, 0, 0]} maxBarSize={28} />
+                <Bar dataKey="errors" name="Failed" stackId="runs" fill="var(--danger)" radius={[3, 3, 0, 0]} maxBarSize={28} />
+              </BarChart>
             </ResponsiveContainer>
-          </ChartFrame>
-        </Panel>
-        <Panel title="Cost Status Legend" icon={<Gauge className="size-4" />}>
-          <div className="flex flex-col gap-2">
-            {Object.entries(costs?.cost_status_counts ?? {}).map(([status, count]) => (
-              <div key={status} className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/20 px-3 py-2">
-                <CostStatusBadge status={status} />
-                <span className="text-sm/6 font-semibold text-white">{count}</span>
-              </div>
-            ))}
           </div>
-        </Panel>
-        <Panel title="Tool Activity" icon={<Wrench className="size-4" />}>
-          <div className="flex flex-col gap-2">
-            {toolCalls.slice(0, 7).map(call => (
-              <div key={call.tool_call_id} className="rounded-2xl border border-white/10 bg-slate-950/20 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="truncate text-sm/6 font-semibold text-white">{call.tool_name}</div>
-                  <Badge>{formatMs(call.duration_ms)}</Badge>
-                </div>
-                <div className="truncate text-xs/5 text-white/52">{call.agent_name ?? 'unknown'} / {call.status} / {call.tool_type}</div>
-              </div>
-            ))}
-            {toolCalls.length === 0 && <EmptyState title="No tool calls" />}
+        </Card>
+        <Card title="Latency" description="Per-interval trace duration" actions={<ChartLegend items={[{ label: 'p95', color: 'var(--chart-5)' }, { label: 'avg', color: 'var(--chart-2)' }]} />}>
+          <div className="h-60">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: -10 }}>
+                <defs>
+                  <linearGradient id="latency-fill" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stopColor="var(--chart-5)" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="var(--chart-5)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid {...gridProps} />
+                <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" minTickGap={40} />
+                <YAxis {...axisProps} width={52} tickFormatter={value => formatMs(value)} />
+                <Tooltip content={<ChartTooltip formatter={value => formatMs(value)} />} />
+                <Area type="monotone" dataKey={point => point.runs ? point.p95 : null} name="p95" stroke="var(--chart-5)" strokeWidth={1.75} fill="url(#latency-fill)" dot={{ r: 2.5, fill: 'var(--chart-5)', strokeWidth: 0 }} connectNulls />
+                <Area type="monotone" dataKey={point => point.runs ? point.avg : null} name="avg" stroke="var(--chart-2)" strokeWidth={1.5} fill="transparent" dot={{ r: 2, fill: 'var(--chart-2)', strokeWidth: 0 }} connectNulls />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
-        </Panel>
+        </Card>
       </div>
-    </div>
-  )
-}
 
-function LiveEventStream({ events }: { events: LiveEventRecord[] }) {
-  if (events.length === 0)
-    return <EmptyState icon={<Wifi className="size-5" />} title="Waiting for live workflow events" />
-  return (
-    <div className="vision-scroll max-h-64 overflow-auto pr-1">
-      {events.map((event, index) => (
-        <div key={`${event.at}-${index}`} className="mb-2 grid grid-cols-[auto_1fr] gap-2 rounded-2xl border border-white/10 bg-slate-950/22 p-2.5">
-          <StatusDot status={event.type.includes('failed') || event.type.includes('error') ? 'failed' : event.type.includes('completed') ? 'succeeded' : 'running'} />
-          <div className="min-w-0">
-            <div className="truncate text-sm/5 font-semibold text-white">{event.type}</div>
-            <div className="truncate text-xs/5 text-white/50">{formatTime(event.at)} {event.trace_id ? `/ ${event.trace_id}` : ''}</div>
-          </div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Card
+          className="xl:col-span-2"
+          flush
+          title="Issues"
+          description="Failed traces grouped by error type and workflow"
+          actions={issues.length > 0 && <Button size="sm" variant="ghost" onClick={() => onFilterTraces({ status: 'failed' })}>View failed traces<ArrowRight /></Button>}
+        >
+          {issues.length === 0
+            ? <EmptyState icon={<Activity />} title="No failures" detail={`Every trace in the ${rangeTitle.toLowerCase()} succeeded.`} />
+            : (
+                <ul className="divide-y divide-line">
+                  {issues.slice(0, 6).map(issue => (
+                    <li key={issue.key}>
+                      <button className="flex w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-surface-2/60" onClick={() => onTrace(issue.traces[0].trace_id)}>
+                        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-danger-soft text-danger-text"><AlertOctagon className="size-4" /></span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="truncate font-mono text-[13px] font-medium text-fg">{issue.errorType}</span>
+                            <span className="truncate text-[13px] text-fg-muted">in {issue.workflow}</span>
+                          </span>
+                          <span className="block truncate text-xs text-fg-subtle">{issue.message || 'No error message recorded'}</span>
+                        </span>
+                        <span className="hidden w-24 shrink-0 text-right sm:block">
+                          <span className="tabular block text-[13px] text-fg">{issue.cost > 0 ? formatMoney(issue.cost) : '-'}</span>
+                          <span className="block text-[11px] text-fg-subtle">wasted</span>
+                        </span>
+                        <span className="w-20 shrink-0 text-right">
+                          <span className="tabular block text-[13px] font-semibold text-fg">{issue.count}</span>
+                          <span className="block text-[11px] text-fg-subtle">{issue.count === 1 ? 'event' : 'events'}</span>
+                        </span>
+                        <span className="hidden w-20 shrink-0 text-right text-xs text-fg-subtle md:block">{formatRelative(issue.lastSeen)}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+        </Card>
+
+        <Card title="Spend by model" description="Estimated cost in the loaded data" actions={<Button size="sm" variant="ghost" onClick={() => onSection('models')}>Models<ArrowRight /></Button>}>
+          {topModels.length === 0
+            ? <EmptyState title="No model calls yet" />
+            : (
+                <ul className="flex flex-col gap-3.5">
+                  {topModels.map(model => (
+                    <li key={`${model.provider}-${model.model}`} className="flex flex-col gap-1.5">
+                      <div className="flex items-baseline justify-between gap-3 text-[13px]">
+                        <span className="min-w-0 truncate"><span className="font-medium text-fg">{model.model}</span> <span className="text-fg-subtle">{model.provider}</span></span>
+                        <span className="tabular shrink-0 font-medium text-fg">{maxModelCost > 0 ? formatMoney(model.estimated_cost) : `${formatCompact(model.total_tokens)} tok`}</span>
+                      </div>
+                      <Meter value={maxModelCost > 0 ? numeric(model.estimated_cost) : numeric(model.total_tokens)} max={maxModelCost > 0 ? maxModelCost : maxModelTokens} />
+                      <div className="flex gap-3 text-[11.5px] text-fg-subtle">
+                        <span>{formatNumber(model.calls)} calls</span>
+                        <span>{formatCompact(model.total_tokens)} tokens</span>
+                        <span>p95 {formatMs(model.p95_latency_ms)}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Card className="xl:col-span-2" flush title="Recent traces" actions={<Button size="sm" variant="ghost" onClick={() => onFilterTraces({})}>All traces<ArrowRight /></Button>}>
+          <DataTable
+            rows={traces.slice(0, 8)}
+            minWidth={620}
+            onRow={row => onTrace(row.trace_id)}
+            rowKey={row => row.trace_id}
+            empty={<EmptyState title="No traces yet" />}
+            columns={[
+              {
+                label: 'Trace',
+                render: row => (
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <StatusDot status={row.status} />
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium text-fg">{row.workflow_name ?? row.name}</span>
+                      {row.error_message && <span className="block max-w-md truncate text-xs text-danger-text">{row.error_message}</span>}
+                    </span>
+                  </span>
+                ),
+              },
+              { label: 'Tokens', align: 'right', render: row => numeric(row.total_tokens) ? formatCompact(row.total_tokens) : <span className="text-fg-subtle">-</span> },
+              { label: 'Duration', align: 'right', render: row => formatMs(traceDuration(row)) },
+              { label: 'Cost', align: 'right', render: row => numeric(row.estimated_cost) ? formatMoney(row.estimated_cost) : <span className="text-fg-subtle">-</span> },
+              { label: 'Started', align: 'right', render: row => <span className="text-fg-muted" title={row.started_at}>{formatRelative(row.started_at)}</span> },
+            ]}
+          />
+        </Card>
+
+        <div className="flex min-w-0 flex-col gap-4">
+          <Card flush title="Providers" description={idleProviders ? `${idleProviders} more not configured` : undefined} actions={<Button size="sm" variant="ghost" onClick={() => onSection('models')}>Details<ArrowRight /></Button>}>
+            {activeProviders.length === 0
+              ? <EmptyState title="No provider traffic yet" />
+              : (
+                  <ul className="divide-y divide-line">
+                    {activeProviders.map(provider => (
+                      <li key={provider.provider} className="flex items-center gap-3 px-4 py-2.5">
+                        <StatusDot status={provider.status} pulse={provider.status === 'degraded'} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-medium text-fg">{provider.display_name}</span>
+                          <span className="block truncate text-xs text-fg-subtle">{formatNumber(provider.calls)} calls · p95 {formatMs(provider.p95_latency_ms)}{provider.error_rate ? ` · ${formatPercent(provider.error_rate)} errors` : ''}</span>
+                        </span>
+                        <StatusBadge status={provider.status} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+          </Card>
+          <Card flush title="Live activity" icon={<Radio />} description="Events streamed from the server">
+            {liveEvents.length === 0
+              ? <div className="px-4 py-6 text-center text-[13px] text-fg-subtle">Waiting for new trace events...</div>
+              : (
+                  <ul className="max-h-56 divide-y divide-line overflow-y-auto">
+                    {liveEvents.slice(0, 12).map((event, index) => (
+                      <li key={`${event.at}-${index}`} className="flex items-center gap-2.5 px-4 py-2 text-[13px]">
+                        <StatusDot status={event.type.includes('fail') || event.type.includes('error') ? 'failed' : event.type.includes('finish') || event.type.includes('complete') ? 'succeeded' : 'running'} />
+                        <button className="min-w-0 flex-1 truncate text-left text-fg hover:text-accent-text" disabled={!event.trace_id} onClick={() => event.trace_id && onTrace(event.trace_id)}>{event.type}</button>
+                        <Badge outline>{formatRelative(event.at)}</Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+          </Card>
         </div>
-      ))}
-    </div>
+      </div>
+    </>
   )
 }

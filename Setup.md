@@ -117,12 +117,9 @@ http://127.0.0.1:8790
 
 You should see:
 
-- Overview / Trace Launchpad.
-- Recent Traces.
-- Failure Inbox.
-- Provider Health.
-- Cost Center.
-- Trace Detail cockpit with span tree and waterfall.
+- Overview with KPI cards, trace volume and latency charts, and grouped issues.
+- Recent traces and provider health.
+- A trace view (click any trace) with insights, a span timeline, and span details.
 
 ## 5. Run Real Example Workflows
 

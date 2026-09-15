@@ -1,13 +1,16 @@
-import { BellRing, CheckCircle2, Plus, Send, ShieldAlert, Trash2 } from 'lucide-react'
-import { useEffect, useState, type FormEvent } from 'react'
+import { BellOff, BellRing, CheckCircle2, MoreHorizontal, Plus, Power, Send, ShieldAlert, Timer, Trash2 } from 'lucide-react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { checkAlerts, createAlertRule, deleteAlertRule, getAlertKinds, listAlertEvents, listAlertRules, testAlertRule, updateAlertRule } from '../api'
-import { InlineAction } from '../components/common/Actions'
-import { Badge } from '../components/common/Badges'
-import { EmptyState, MetricCard, Panel } from '../components/common/Cards'
-import { FilterSelect, TextField } from '../components/common/Inputs'
-import { DataTable } from '../components/tables/DataTable'
+import { Badge, StatusDot } from '../components/ui/Badge'
+import { Button } from '../components/ui/Button'
+import { Card, EmptyState, PageHeader } from '../components/ui/Card'
+import { DataTable } from '../components/ui/DataTable'
+import { SelectField, TextField } from '../components/ui/Field'
+import { Drawer, Menu, Toast } from '../components/ui/Overlay'
+import { StatCard } from '../components/ui/Stat'
+import { Segmented } from '../components/ui/Tabs'
 import type { AlertEvent, AlertRule } from '../types'
-import { errorText, formatTime } from '../utils/format'
+import { errorText, formatDateTime, formatRelative } from '../utils/format'
 
 const KIND_LABELS: Record<string, string> = {
   failure_rate: 'Failure rate',
@@ -18,14 +21,20 @@ const KIND_LABELS: Record<string, string> = {
   loop_detected: 'Tool loop',
 }
 
-export function AlertsPage({ refreshKey }: { refreshKey: string | null }) {
+export function AlertsPage({ refreshKey, onChanged }: { refreshKey: string | null; onChanged: () => void }) {
   const [rules, setRules] = useState<AlertRule[]>([])
   const [events, setEvents] = useState<AlertEvent[]>([])
   const [kinds, setKinds] = useState<Record<string, string>>({})
   const [checkInterval, setCheckInterval] = useState<number | null>(null)
-  const [notice, setNotice] = useState('')
+  const [notice, setNotice] = useState<{ message: string; tone?: 'neutral' | 'danger' | 'success' }>({ message: '' })
+  const [creating, setCreating] = useState(false)
+  const [stateFilter, setStateFilter] = useState<'all' | 'firing' | 'ok' | 'disabled'>('all')
   const [version, setVersion] = useState(0)
-  const reload = () => setVersion(value => value + 1)
+  const clearNotice = useCallback(() => setNotice({ message: '' }), [])
+  const reload = () => {
+    setVersion(value => value + 1)
+    onChanged()
+  }
 
   useEffect(() => {
     Promise.all([listAlertRules(), listAlertEvents(50), getAlertKinds()])
@@ -35,107 +44,152 @@ export function AlertsPage({ refreshKey }: { refreshKey: string | null }) {
         setKinds(meta.kinds)
         setCheckInterval(meta.check_interval_seconds)
       })
-      .catch(caught => setNotice(errorText(caught)))
+      .catch(caught => setNotice({ message: errorText(caught), tone: 'danger' }))
   }, [refreshKey, version])
 
   const firing = rules.filter(rule => rule.enabled && rule.state === 'firing').length
+  const disabled = rules.filter(rule => !rule.enabled).length
   const dayAgo = Date.now() - 24 * 3600 * 1000
   const recent = events.filter(event => Date.parse(event.created_at) >= dayAgo && event.status === 'firing').length
+  const visibleRules = rules.filter(rule => stateFilter === 'all' || (stateFilter === 'disabled' ? !rule.enabled : rule.enabled && (stateFilter === 'firing' ? rule.state === 'firing' : rule.state !== 'firing')))
 
   async function act(action: () => Promise<unknown>, success?: string) {
     try {
-      const result = await action()
-      setNotice(success ?? '')
+      await action()
+      if (success)
+        setNotice({ message: success, tone: 'success' })
       reload()
-      return result
     }
     catch (caught) {
-      setNotice(errorText(caught))
-      return undefined
+      setNotice({ message: errorText(caught), tone: 'danger' })
     }
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <MetricCard icon={<BellRing className="size-4" />} label="Alert rules" value={rules.length} compact />
-        <MetricCard icon={<ShieldAlert className="size-4" />} label="Firing now" value={firing} tone={firing ? 'danger' : 'good'} compact />
-        <MetricCard icon={<Send className="size-4" />} label="Notifications (24h)" value={recent} tone={recent ? 'warn' : 'neutral'} compact />
-        <MetricCard icon={<CheckCircle2 className="size-4" />} label="Checked every" value={checkInterval === null ? '-' : checkInterval > 0 ? `${checkInterval}s` : 'off (use agentmesh alerts check)'} compact />
-      </div>
-      {notice && <div className="rounded-2xl border border-sky-200/24 bg-sky-400/12 px-3 py-2 text-sm/6 text-sky-50">{notice}</div>}
+    <>
+      <PageHeader
+        title="Alerts"
+        description="Get notified in Slack, Discord, or any webhook when failures spike, spend jumps, or an agent loops."
+        actions={(
+          <>
+            <Button icon={<CheckCircle2 />} onClick={() => void act(() => checkAlerts(), 'Checked all rules.')}>Check now</Button>
+            <Button variant="primary" icon={<Plus />} onClick={() => setCreating(true)}>New alert rule</Button>
+          </>
+        )}
+      />
+      <Toast message={notice.message} tone={notice.tone} onDone={clearNotice} />
+      <NewRuleDrawer open={creating} kinds={kinds} onClose={() => setCreating(false)} onCreated={name => { setCreating(false); setNotice({ message: `Created ${name}.`, tone: 'success' }); reload() }} />
 
-      <Panel
-        title="Alert rules"
-        icon={<BellRing className="size-4" />}
-        actions={<button className="trace-action" onClick={() => void act(async () => {
-          const { fired } = await checkAlerts()
-          return fired
-        }, 'Checked all rules now.')}>Check now</button>}
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <StatCard label="Firing now" icon={<ShieldAlert />} value={firing} tone={firing ? 'danger' : 'neutral'} sub={firing ? 'Needs attention' : 'All clear'} />
+        <StatCard label="Alert rules" icon={<BellRing />} value={rules.length} sub={`${rules.length - disabled} enabled · ${disabled} disabled`} />
+        <StatCard label="Notifications, 24h" icon={<Send />} value={recent} tone={recent ? 'warning' : 'neutral'} sub={`${events.length} in history`} />
+        <StatCard label="Checked every" icon={<Timer />} value={checkInterval === null ? '-' : checkInterval > 0 ? `${checkInterval}s` : 'Off'} sub={checkInterval === 0 ? 'Run agentmesh alerts check' : 'By the server scheduler'} />
+      </div>
+
+      <Card
+        flush
+        title="Rules"
+        actions={(
+          <Segmented
+            size="sm"
+            value={stateFilter}
+            onChange={setStateFilter}
+            options={[
+              { value: 'all', label: `All ${rules.length}` },
+              { value: 'firing', label: `Firing ${firing}` },
+              { value: 'ok', label: 'OK' },
+              { value: 'disabled', label: 'Disabled' },
+            ]}
+          />
+        )}
       >
         {rules.length === 0
-          ? <EmptyState icon={<BellRing className="size-5" />} title="No alert rules" detail="Get a Slack, Discord, or webhook notification when failures spike, spend jumps, a trace gets expensive, or an agent loops." />
+          ? <EmptyState icon={<BellRing />} title="No alert rules" detail="Create a rule for failed runs, spend, expensive traces, latency, or tool loops." action={<Button variant="primary" icon={<Plus />} onClick={() => setCreating(true)}>New alert rule</Button>} />
           : (
               <DataTable
-                rows={rules}
+                rows={visibleRules}
+                rowKey={row => row.rule_id}
                 minWidth={900}
+                rowClassName={row => row.enabled && row.state === 'firing' ? 'shadow-[inset_2px_0_0_var(--danger)]' : ''}
+                empty={<EmptyState title="No rules in this state" />}
                 columns={[
-                  { label: 'Rule', render: row => <div><div className="font-semibold text-white">{row.name}</div><div className="text-xs/5 text-white/50">{condition(row)}</div></div>, sortValue: row => row.name },
-                  { label: 'Scope', render: row => <Filters filters={row.filters} />, sortValue: row => JSON.stringify(row.filters) },
-                  { label: 'State', render: row => !row.enabled ? <Badge outline>disabled</Badge> : row.state === 'firing' ? <Badge tone="danger">firing</Badge> : <Badge tone="good">ok</Badge>, sortValue: row => `${row.enabled}${row.state}` },
-                  { label: 'Last value', render: row => formatValue(row.kind, row.last_value), sortValue: row => row.last_value ?? -1 },
-                  { label: 'Notify', render: row => <span className="whitespace-nowrap">{row.channel.url ? <Badge tone="info">{row.channel.format}</Badge> : <Badge outline>dashboard</Badge>}</span>, sortValue: row => row.channel.format },
-                  { label: 'Last fired', render: row => <span className="whitespace-nowrap">{formatTime(row.last_triggered_at)}</span>, sortValue: row => Date.parse(row.last_triggered_at ?? '') || 0 },
+                  {
+                    label: 'Status',
+                    width: '110px',
+                    sortValue: row => `${row.enabled ? (row.state === 'firing' ? 0 : 1) : 2}`,
+                    render: row => !row.enabled
+                      ? <Badge outline><BellOff />Disabled</Badge>
+                      : row.state === 'firing' ? <Badge tone="danger" dot>Firing</Badge> : <Badge tone="success" dot>OK</Badge>,
+                  },
+                  { label: 'Rule', sortValue: row => row.name, render: row => <span className="flex flex-col"><span className="font-medium text-fg">{row.name}</span><span className="font-mono text-[11.5px] text-fg-subtle">{condition(row)}</span></span> },
+                  { label: 'Scope', render: row => <Filters filters={row.filters} /> },
+                  { label: 'Last value', align: 'right', sortValue: row => row.last_value ?? -1, render: row => <span className={row.enabled && row.state === 'firing' ? 'font-semibold text-danger-text' : 'text-fg'}>{formatValue(row.kind, row.last_value)}</span> },
+                  { label: 'Notify', render: row => row.channel.url ? <Badge tone="accent">{row.channel.format}</Badge> : <Badge outline>dashboard only</Badge> },
+                  { label: 'Last fired', align: 'right', sortValue: row => Date.parse(row.last_triggered_at ?? '') || 0, render: row => <span className="whitespace-nowrap text-fg-muted" title={formatDateTime(row.last_triggered_at)}>{row.last_triggered_at ? formatRelative(row.last_triggered_at) : 'never'}</span> },
                   {
                     label: '',
+                    align: 'right',
+                    width: '48px',
                     render: row => (
-                      <div className="flex flex-wrap gap-1">
-                        <InlineAction icon={<CheckCircle2 className="size-3" />} label={row.enabled ? 'Disable' : 'Enable'} onClick={() => void act(() => updateAlertRule(row.rule_id, { enabled: !row.enabled }))} />
-                        {row.channel.url && <InlineAction icon={<Send className="size-3" />} label="Test" onClick={() => void act(async () => {
-                          const result = await testAlertRule(row.rule_id)
-                          if (!result.delivered)
-                            throw new Error(`Test notification failed: ${result.error ?? 'unknown error'}`)
-                        }, `Test notification sent for ${row.name}.`)} />}
-                        <InlineAction icon={<Trash2 className="size-3" />} label="Delete" tone="danger" onClick={() => void act(() => deleteAlertRule(row.rule_id))} />
-                      </div>
+                      <Menu
+                        trigger={({ toggle }) => <Button size="icon-sm" variant="ghost" aria-label={`Actions for ${row.name}`} onClick={toggle}><MoreHorizontal /></Button>}
+                        items={[
+                          { label: row.enabled ? 'Disable' : 'Enable', icon: <Power />, onSelect: () => void act(() => updateAlertRule(row.rule_id, { enabled: !row.enabled })) },
+                          ...(row.channel.url
+                            ? [{
+                                label: 'Send test notification',
+                                icon: <Send />,
+                                onSelect: () => void act(async () => {
+                                  const result = await testAlertRule(row.rule_id)
+                                  if (!result.delivered)
+                                    throw new Error(`Test notification failed: ${result.error ?? 'unknown error'}`)
+                                }, `Test notification sent for ${row.name}.`),
+                              }]
+                            : []),
+                          { label: 'Delete', icon: <Trash2 />, danger: true, onSelect: () => void act(() => deleteAlertRule(row.rule_id), `Deleted ${row.name}.`) },
+                        ]}
+                      />
                     ),
                   },
                 ]}
               />
             )}
-      </Panel>
+      </Card>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[400px_minmax(0,1fr)]">
-        <NewRuleForm kinds={kinds} onCreated={name => { setNotice(`Created ${name}.`); reload() }} />
-        <Panel title="Recent notifications" icon={<Send className="size-4" />}>
-          {events.length === 0
-            ? <EmptyState title="Nothing has fired yet" />
-            : (
-                <DataTable
-                  rows={events}
-                  minWidth={620}
-                  columns={[
-                    { label: 'Time', render: row => <span className="whitespace-nowrap">{formatTime(row.created_at)}</span>, sortValue: row => Date.parse(row.created_at) },
-                    { label: 'Rule', render: row => <span className="font-semibold text-white">{row.rule_name}</span>, sortValue: row => row.rule_name },
-                    { label: 'Status', render: row => <Badge tone={row.status === 'firing' ? 'danger' : row.status === 'resolved' ? 'good' : 'info'}>{row.status}</Badge>, sortValue: row => row.status },
-                    { label: 'Message', render: row => <span className="text-sm/5 text-white/84">{row.message}</span>, sortValue: row => row.message },
-                    { label: 'Delivery', render: row => row.delivery_error ? <Badge tone="warn">{row.delivery_error}</Badge> : row.delivered ? <Badge tone="good">delivered</Badge> : <Badge outline>recorded</Badge>, sortValue: row => String(row.delivered) },
-                  ]}
-                />
-              )}
-        </Panel>
-      </div>
-    </div>
+      <Card flush title="Recent notifications" description="Firing and resolved events, newest first">
+        {events.length === 0
+          ? <EmptyState icon={<Send />} title="Nothing has fired yet" />
+          : (
+              <ol className="divide-y divide-line">
+                {events.map(event => (
+                  <li key={event.alert_id} className="flex items-start gap-3 px-4 py-3">
+                    <StatusDot status={event.status === 'firing' ? 'failed' : event.status === 'resolved' ? 'succeeded' : 'running'} className="mt-1.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[13px] font-medium text-fg">{event.rule_name}</span>
+                        <Badge tone={event.status === 'firing' ? 'danger' : event.status === 'resolved' ? 'success' : 'info'}>{event.status}</Badge>
+                        {event.delivery_error ? <Badge tone="warning" title={event.delivery_error}>delivery failed</Badge> : event.delivered ? <Badge outline>delivered</Badge> : null}
+                      </div>
+                      <p className="mt-0.5 text-[13px] text-fg-muted">{event.message}</p>
+                    </div>
+                    <span className="shrink-0 text-xs whitespace-nowrap text-fg-subtle" title={formatDateTime(event.created_at)}>{formatRelative(event.created_at)}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+      </Card>
+    </>
   )
 }
 
-function NewRuleForm({ kinds, onCreated }: { kinds: Record<string, string>; onCreated: (name: string) => void }) {
+function NewRuleDrawer({ open, kinds, onClose, onCreated }: { open: boolean; kinds: Record<string, string>; onClose: () => void; onCreated: (name: string) => void }) {
   const [form, setForm] = useState({ name: '', kind: 'failure_rate', threshold: '0.2', window: '15m', cooldown: '30m', url: '', format: '', secret: '', workflow: '', environment: '' })
   const [error, setError] = useState('')
   const set = (key: keyof typeof form) => (value: string) => setForm(current => ({ ...current, [key]: value }))
 
-  async function submit(event: FormEvent) {
-    event.preventDefault()
+  async function submit(event?: FormEvent) {
+    event?.preventDefault()
     const filters: Record<string, string> = {}
     if (form.workflow.trim())
       filters.workflow = form.workflow.trim()
@@ -161,47 +215,60 @@ function NewRuleForm({ kinds, onCreated }: { kinds: Record<string, string>; onCr
   }
 
   return (
-    <Panel title="New alert rule" icon={<Plus className="size-4" />}>
-      <form className="flex flex-col gap-2" onSubmit={event => void submit(event)}>
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title="New alert rule"
+      description="Rules are checked on a schedule by the server."
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" icon={<Plus />} disabled={!form.name.trim()} onClick={() => void submit()}>Create rule</Button></>}
+    >
+      <form className="flex flex-col gap-5" onSubmit={event => void submit(event)}>
         <TextField label="Name" value={form.name} onChange={set('name')} placeholder="checkout failures" />
-        <FilterSelect label="When" value={form.kind} onChange={kind => setForm(current => ({ ...current, kind, threshold: defaultThreshold(kind) }))} options={Object.keys(kinds).map(kind => [kind, KIND_LABELS[kind] ?? kind])} />
-        <p className="text-xs/5 text-white/55">{kinds[form.kind]}</p>
-        <div className="grid grid-cols-3 gap-2">
-          <TextField label={thresholdLabel(form.kind)} value={form.threshold} onChange={set('threshold')} />
-          <TextField label="Window" value={form.window} onChange={set('window')} placeholder="15m" />
-          <TextField label="Cooldown" value={form.cooldown} onChange={set('cooldown')} placeholder="30m" />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <TextField label="Workflow (optional)" value={form.workflow} onChange={set('workflow')} />
-          <TextField label="Environment (optional)" value={form.environment} onChange={set('environment')} placeholder="production" />
-        </div>
-        <TextField label="Webhook URL (Slack, Discord, or any HTTPS endpoint)" value={form.url} onChange={set('url')} placeholder="https://hooks.slack.com/services/..." />
-        <div className="grid grid-cols-2 gap-2">
-          <FilterSelect label="Format" value={form.format} onChange={set('format')} options={[['', 'Detect from URL'], ['slack', 'Slack'], ['discord', 'Discord'], ['json', 'JSON']]} />
-          <TextField label="Signing secret (optional)" type="password" value={form.secret} onChange={set('secret')} />
-        </div>
-        <button type="submit" className="trace-action self-start" disabled={!form.name.trim()}><Plus className="size-4" />Create rule</button>
-        {error && <p className="text-xs/5 text-rose-100">{error}</p>}
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-2 text-[13px] font-semibold text-fg">Condition</legend>
+          <SelectField label="Alert when" value={form.kind} onChange={kind => setForm(current => ({ ...current, kind, threshold: defaultThreshold(kind) }))} options={Object.keys(kinds).map(kind => [kind, KIND_LABELS[kind] ?? kind])} hint={kinds[form.kind]} />
+          <div className="grid grid-cols-3 gap-2">
+            <TextField label={thresholdLabel(form.kind)} value={form.threshold} onChange={set('threshold')} />
+            <TextField label="Window" value={form.window} onChange={set('window')} placeholder="15m" />
+            <TextField label="Cooldown" value={form.cooldown} onChange={set('cooldown')} placeholder="30m" />
+          </div>
+        </fieldset>
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-2 text-[13px] font-semibold text-fg">Scope</legend>
+          <div className="grid grid-cols-2 gap-2">
+            <TextField label="Workflow" value={form.workflow} onChange={set('workflow')} placeholder="any" />
+            <TextField label="Environment" value={form.environment} onChange={set('environment')} placeholder="production" />
+          </div>
+        </fieldset>
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-2 text-[13px] font-semibold text-fg">Notification</legend>
+          <TextField label="Webhook URL" value={form.url} onChange={set('url')} placeholder="https://hooks.slack.com/services/..." hint="Slack, Discord, or any HTTPS endpoint. Leave empty to record alerts in the dashboard only." />
+          <div className="grid grid-cols-2 gap-2">
+            <SelectField label="Format" value={form.format} onChange={set('format')} options={[['', 'Detect from URL'], ['slack', 'Slack'], ['discord', 'Discord'], ['json', 'JSON']]} />
+            <TextField label="Signing secret" type="password" value={form.secret} onChange={set('secret')} placeholder="optional" />
+          </div>
+        </fieldset>
+        {error && <p className="text-[13px] text-danger-text">{error}</p>}
       </form>
-    </Panel>
+    </Drawer>
   )
 }
 
 function Filters({ filters }: { filters: Record<string, unknown> }) {
   const entries = Object.entries(filters).filter(([key]) => key !== 'min_runs')
   if (!entries.length)
-    return <span className="whitespace-nowrap text-white/40">all traces</span>
-  return <span className="flex flex-wrap gap-1">{entries.map(([key, value]) => <Badge key={key} outline>{key}={String(value)}</Badge>)}</span>
+    return <span className="whitespace-nowrap text-fg-subtle">all traces</span>
+  return <span className="flex flex-wrap gap-1">{entries.map(([key, value]) => <Badge key={key} outline>{key}: {String(value)}</Badge>)}</span>
 }
 
 function condition(rule: AlertRule): string {
   const window = rule.window_minutes % 60 === 0 ? `${rule.window_minutes / 60}h` : `${rule.window_minutes}m`
   const threshold = formatValue(rule.kind, rule.threshold)
   if (rule.kind === 'trace_cost')
-    return `a trace costs >= ${threshold} (last ${window})`
+    return `trace cost >= ${threshold} · last ${window}`
   if (rule.kind === 'loop_detected')
-    return `a tool repeats >= ${threshold} times with the same input (last ${window})`
-  return `${KIND_LABELS[rule.kind] ?? rule.kind} >= ${threshold} over ${window}`
+    return `same tool call repeated >= ${threshold}x · last ${window}`
+  return `${(KIND_LABELS[rule.kind] ?? rule.kind).toLowerCase()} >= ${threshold} · last ${window}`
 }
 
 function formatValue(kind: string, value: number | null | undefined): string {
@@ -212,7 +279,7 @@ function formatValue(kind: string, value: number | null | undefined): string {
   if (kind === 'cost' || kind === 'trace_cost')
     return `$${value.toFixed(value < 1 ? 4 : 2)}`
   if (kind === 'latency_p95')
-    return value >= 1000 ? `${(value / 1000).toFixed(1)} s` : `${Math.round(value)} ms`
+    return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`
   return String(Math.round(value))
 }
 

@@ -6,7 +6,21 @@ All notable changes to AgentMesh are documented here. AgentMesh follows [Semanti
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+- **Redesigned dashboard.** A new app shell with a grouped, collapsible sidebar (with firing-alert and pending-approval badges), breadcrumbs, a global time range and data scope, a live-stream indicator, and a Ctrl/⌘ K command palette for pages, traces, and sessions. Light, dark, and system themes, saved per browser and applied before first paint.
+- **Overview** now shows KPI cards with sparklines, trace volume and latency charts for the selected range, failures grouped into issues (count, wasted spend, last seen), spend by model, recent traces, provider health, and live activity.
+- **Traces**: a dense sortable table with a volume histogram, search, status and model filters, and failed rows marked. The trace view combines the span tree and waterfall into one collapsible timeline with span-kind icons, opens failed traces on their root-cause span, steps to the previous or next trace, and shows the selected span in a side panel whose Input and Output render chat messages (including OpenTelemetry GenAI `parts`) as a conversation.
+- Every other page is rebuilt on shared components: Sessions as a chat transcript, experiments with score bars and highlighted regressions, Alerts with state filters and a rule menu, Costs with budget progress and spend over time, Models with a health card per provider, Agents as cards, Tools with per-tool stats, tabbed Memory & RAG, an approvals inbox, and side panels for create forms and record details. The workflow graph lays nodes out left to right.
+- Links keep the page, trace, time range, and trace filters in the address bar (`/?page=costs&range=7d`, `/?trace=<id>`, `/?page=traces&status=failed`).
+
+### Added
+- **Trace comparison** in the dashboard: pick any trace (other runs of the same workflow first) and see metric differences and every execution step aligned between the two runs, with steps only one run took, status changes, and duration changes. Replaces the previous event-count comparison.
+- **Timeline tools**: find spans by name, event, agent, model, tool, or error; show failed spans only; expand or collapse the whole tree.
+- **Keyboard shortcuts**: `?` lists them; `/` opens search; `g` then a letter goes to a page; in a trace, `j`/`k` move between spans, `[`/`]` switch traces, `c` opens Compare, and `Esc` returns to the list.
+- **Traces list**: load older traces beyond the first 500, and export the list as CSV.
+
+### Removed
+- The dashboard's background image and its `/vision-space.svg` route.
 
 ---
 

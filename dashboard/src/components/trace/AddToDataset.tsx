@@ -1,33 +1,33 @@
-import { Database, Plus, X } from 'lucide-react'
+import { DatabaseZap, Plus } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { addTraceToDataset, createDataset, listDatasets } from '../../api'
 import type { DatasetSummary } from '../../types'
 import { errorText } from '../../utils/format'
+import { Button } from '../ui/Button'
+import { Field, Input, Switch } from '../ui/Field'
+import { Drawer } from '../ui/Overlay'
 
 /** Turn a trace into a regression test: copy its input (and, optionally, its output as the expected answer) into a dataset. */
-export function AddToDataset({ traceId }: { traceId: string }) {
+export function AddToDataset({ traceId, onDone }: { traceId: string; onDone: (message: string) => void }) {
   const [open, setOpen] = useState(false)
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
   const [name, setName] = useState('')
   const [useOutput, setUseOutput] = useState(true)
-  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!open)
       return
+    setError('')
     listDatasets().then(items => {
       setDatasets(items)
       setName(current => current || items[0]?.name || '')
     }).catch(() => setDatasets([]))
   }, [open])
 
-  useEffect(() => {
-    setMessage('')
-  }, [traceId])
-
-  async function submit(event: FormEvent) {
-    event.preventDefault()
+  async function submit(event?: FormEvent) {
+    event?.preventDefault()
     const target = name.trim()
     if (!target)
       return
@@ -36,47 +36,55 @@ export function AddToDataset({ traceId }: { traceId: string }) {
       if (!datasets.some(dataset => dataset.name === target))
         await createDataset({ name: target })
       await addTraceToDataset(target, { trace_id: traceId, use_trace_output: useOutput })
-      setMessage(`Added to ${target}`)
       setOpen(false)
+      onDone(`Added this trace to ${target}.`)
     }
     catch (caught) {
-      setMessage(errorText(caught))
+      setError(errorText(caught))
     }
     finally {
       setBusy(false)
     }
   }
 
-  if (!open) {
-    return (
-      <span className="inline-flex items-center gap-2">
-        <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/16 bg-black/24 px-3 py-2 text-sm/6 font-semibold text-white transition hover:bg-white/14" onClick={() => setOpen(true)}>
-          <Database className="size-4" />Add to dataset
-        </button>
-        {message && <span className="text-xs/5 text-emerald-100">{message}</span>}
-      </span>
-    )
-  }
   return (
-    <form className="flex flex-wrap items-center gap-2 rounded-2xl border border-sky-200/24 bg-sky-400/10 p-2" onSubmit={event => void submit(event)}>
-      <input
-        list={`datasets-${traceId}`}
-        aria-label="Dataset name"
-        className="h-9 w-48 rounded-xl border border-white/16 bg-slate-950/40 px-3 text-sm/6 text-white [color-scheme:dark] placeholder:text-white/40"
-        placeholder="dataset name"
-        value={name}
-        onChange={event => setName(event.target.value)}
-      />
-      <datalist id={`datasets-${traceId}`}>
-        {datasets.map(dataset => <option key={dataset.dataset_id} value={dataset.name} />)}
-      </datalist>
-      <label className="flex items-center gap-1.5 text-xs/5 text-white/78">
-        <input type="checkbox" checked={useOutput} onChange={event => setUseOutput(event.target.checked)} />
-        Recorded output is the expected answer
-      </label>
-      <button type="submit" className="trace-action" disabled={busy || !name.trim()}><Plus className="size-4" />Add</button>
-      <button type="button" className="trace-action" aria-label="Cancel" onClick={() => setOpen(false)}><X className="size-4" /></button>
-      {message && <span className="basis-full text-xs/5 text-rose-100">{message}</span>}
-    </form>
+    <>
+      <Button icon={<DatabaseZap />} onClick={() => setOpen(true)}>Add to dataset</Button>
+      <Drawer
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Add trace to dataset"
+        description="Save this run as a test case so future experiments can check it."
+        footer={(
+          <>
+            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="primary" icon={<Plus />} disabled={busy || !name.trim()} onClick={() => void submit()}>Add to dataset</Button>
+          </>
+        )}
+      >
+        <form className="flex flex-col gap-4" onSubmit={event => void submit(event)}>
+          <Field label="Dataset" hint="Pick an existing dataset or type a new name to create one.">
+            <Input list={`datasets-${traceId}`} placeholder="support-regressions" value={name} onChange={event => setName(event.target.value)} autoFocus />
+            <datalist id={`datasets-${traceId}`}>
+              {datasets.map(dataset => <option key={dataset.dataset_id} value={dataset.name} />)}
+            </datalist>
+          </Field>
+          {datasets.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {datasets.slice(0, 8).map(dataset => (
+                <button type="button" key={dataset.dataset_id} className={`h-7 rounded-md border px-2 text-xs ${dataset.name === name ? 'border-accent bg-accent-soft text-accent-text' : 'border-line text-fg-muted hover:border-line-strong hover:text-fg'}`} onClick={() => setName(dataset.name)}>
+                  {dataset.name} <span className="text-fg-subtle">{dataset.item_count}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="rounded-lg border border-line p-3">
+            <Switch checked={useOutput} onChange={setUseOutput} label="Use the recorded output as the expected answer" />
+            <p className="mt-1.5 pl-10 text-xs text-fg-subtle">Turn this off to save only the input, for example when this run's answer was wrong.</p>
+          </div>
+          {error && <p className="text-[13px] text-danger-text">{error}</p>}
+        </form>
+      </Drawer>
+    </>
   )
 }
