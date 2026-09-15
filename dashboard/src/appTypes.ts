@@ -36,6 +36,7 @@ export type Section =
   | 'prompts'
   | 'costs'
   | 'evaluations'
+  | 'guardrails'
   | 'approvals'
   | 'replay'
   | 'settings'

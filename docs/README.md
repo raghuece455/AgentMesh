@@ -6,6 +6,7 @@
 | [sdk.md](sdk.md) | **Python tracing SDK** — `@observe`, `trace()`, `span()`, scores, OpenAI/Anthropic auto-instrumentation |
 | [typescript-sdk.md](typescript-sdk.md) | **TypeScript SDK** — `agentmesh-sdk` for Node.js: tracing, OpenAI/Anthropic instrumentation, experiments |
 | [datasets-and-experiments.md](datasets-and-experiments.md) | **Evaluate changes** — datasets from traces, experiments, evaluators, LLM-as-judge, comparisons, CI gating |
+| [guardrails.md](guardrails.md) | **Guardrails**: policies that block, pause, or limit tool calls, LLM calls, and agents; simulation; kill switch |
 | [alerts.md](alerts.md) | **Alerts** — failure, cost, latency, and loop rules with Slack, Discord, and signed webhooks |
 | [mcp.md](mcp.md) | **MCP server** — let Claude Code, Cursor, or any MCP client query and diagnose traces |
 | [concepts.md](concepts.md) | Core vocabulary — Agent, Workflow, Task, Trace, Tool, Memory, Replay, Budget, Provider, RAG |
@@ -44,6 +45,7 @@ Then explore:
 
 - **Observe an existing agent** → [integrations.md](integrations.md) → [sdk.md](sdk.md) or [typescript-sdk.md](typescript-sdk.md) → [mcp.md](mcp.md)
 - **Ship changes safely** → [datasets-and-experiments.md](datasets-and-experiments.md) → [alerts.md](alerts.md)
+- **Control what agents do** → [guardrails.md](guardrails.md) → [approvals.md](approvals.md)
 - **Build something** → [concepts.md](concepts.md) → [agents.md](agents.md) → [workflows.md](workflows.md)
 - **Add tools** → [tools.md](tools.md) → [approvals.md](approvals.md)
 - **Connect a real model** → [model-providers.md](model-providers.md)

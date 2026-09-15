@@ -20,6 +20,7 @@ const GROUPS: Array<{ title: string; items: Array<{ keys: string[]; label: strin
       { keys: ['g', 'd'], label: 'Datasets' },
       { keys: ['g', 'e'], label: 'Evaluations' },
       { keys: ['g', 'a'], label: 'Alerts' },
+      { keys: ['g', 'r'], label: 'Guardrails' },
       { keys: ['g', 'c'], label: 'Costs' },
       { keys: ['g', 'm'], label: 'Models' },
       { keys: ['g', 'w'], label: 'Workflows' },

@@ -31,6 +31,7 @@ Agent runs are hard to debug once prompts, tools, retrieval, retries, sub-agents
 - **Scores and feedback** — thumbs up/down in the dashboard, `POST /api/scores`, SDK scores, and OTel `gen_ai.evaluation.result` events.
 - **Datasets and experiments** — turn traces into test cases with one click, run a new prompt or model over them, and compare item by item: what regressed, what improved, what it cost. Gate releases in CI with `agentmesh experiments run --fail-under`. [Evals →](docs/datasets-and-experiments.md)
 - **LLM-as-judge** — `LLMJudge("correctness", judge=...)` with any model, plus exact-match, contains, regex, JSON, and similarity evaluators; score production traces with `evaluate_traces()`.
+- **Guardrails and kill switch** — policies that block, pause for approval, or limit tool calls, LLM calls, and agents *before they run*: stop tool loops, runaway spend, production deletes, unapproved models, and swarm fan-out; try a policy in monitor mode or simulate it on recorded traces first; halt a service, agent, or trace in one click. [Guardrails →](docs/guardrails.md)
 - **Alerts** — Slack, Discord, or signed webhook notifications for failure spikes, spend, expensive traces, p95 latency, and agents stuck in tool loops. [Alerts →](docs/alerts.md)
 - **Accurate cost tracking** — per-million-token pricing with cache-read/cache-write rates, current Claude, GPT, and Gemini prices built in, `agentmesh pricing sync` for everything else.
 - **MCP server** — `agentmesh mcp` lets Claude Code, Cursor, or any MCP client list, inspect, diagnose, and score your traces, compare experiments, and check alerts. [MCP →](docs/mcp.md)
@@ -158,6 +159,36 @@ Try both offline: `python examples/datasets_experiments.py`, then open **Dataset
 
 ---
 
+## Stop agents that misbehave
+
+Observability shows you the loop after it happened. Guardrails stop it while it happens. Policies are checked before every tool call, LLM call, and agent start:
+
+```yaml
+name: production-safety
+mode: enforce                  # or monitor: record what would be blocked, block nothing
+limits:
+  max_repeated_calls: 3        # the same tool with the same arguments: a loop
+  max_cost_usd: 5              # per trace
+  max_child_agents: 10         # swarm fan-out
+rules:
+  - name: no-production-deletes
+    match: {tool: "delete_*", arguments: {env: production}}
+    action: deny
+  - name: refunds-need-approval
+    match: {tool: issue_refund}
+    action: require_approval   # waits for a reviewer on the Approvals page
+```
+
+```bash
+agentmesh policy simulate policy.yaml --hours 24     # what would it have blocked yesterday?
+agentmesh policy apply policy.yaml
+agentmesh halt create --service support-bot --reason "Refund loop"   # kill switch
+```
+
+A blocked call raises `agentmesh.PolicyViolation` inside the agent, and the decision shows up on the trace and the **Guardrails** page. Enforced in the Python SDK, OpenAI/Anthropic instrumentation, and the AgentMesh runtime; TypeScript SDK enforcement is next. Try it offline: `python examples/guardrails.py`.
+
+---
+
 ## Quickstart from source
 
 ### Windows PowerShell
@@ -251,6 +282,7 @@ The local dashboard is built around production debugging workflows, with a comma
 | **Traces** | Dense searchable table with shareable filters and CSV export; a trace view with the span tree and waterfall in one searchable timeline, automatic insights, a span panel with chat-style input/output, side-by-side comparison with another run, keyboard navigation, export, replay |
 | **Sessions** | Multi-turn conversations: every turn's input, output, status, cost, and feedback in order |
 | **Datasets & Evals** | Datasets built from traces or by hand, experiment runs with per-evaluator scores, and item-by-item comparison of two runs |
+| **Guardrails** | Policies with a YAML editor, templates, and simulation on recorded traces; blocked, approval, and would-block decisions; a kill switch for services, agents, and traces |
 | **Alerts** | Alert rules with live state, one-click test notifications, and alert history |
 | **Connect** | Your OTLP endpoint and copy-paste setup for OpenTelemetry, the Python and TypeScript SDKs, OpenAI Agents SDK, Pydantic AI, and MCP |
 | **Workflows** | Node graph with agent/task/model/tool/memory/approval nodes, status, retries, cost, latency |
@@ -368,6 +400,7 @@ Runnable examples covering all major features:
 examples/
 ├── sdk_quickstart.py               # Trace plain Python with the SDK (offline)
 ├── datasets_experiments.py         # Traces -> dataset -> two versions -> comparison (offline)
+├── guardrails.py                   # Block, break a loop, approve, and halt with a policy (offline)
 ├── otel_genai_export.py            # Standard OpenTelemetry GenAI spans -> AgentMesh
 ├── llm_client_auto_instrumentation.py  # instrument_openai() / instrument_anthropic()
 ├── hello_agent.py                  # Single-agent workflow
@@ -411,6 +444,9 @@ agentmesh experiments run --dataset support-regressions --task app.py:answer --e
 agentmesh experiments compare <baseline_id> <candidate_id>
 agentmesh alerts add --name "daily spend" --kind cost --threshold 50 --window 1d --webhook <url>
 agentmesh alerts check                                # evaluate rules once (e.g. from cron)
+agentmesh policy apply policy.yaml                    # guardrails: block, pause, or limit agents
+agentmesh policy simulate policy.yaml --hours 24      # what a policy would have blocked
+agentmesh halt create --service support-bot           # kill switch; agentmesh halt release <id>
 agentmesh pricing show claude-sonnet-5
 agentmesh pricing sync
 agentmesh traces export <trace_id> --out trace.json
@@ -496,6 +532,7 @@ Good first issues are labeled [`good first issue`](https://github.com/raghuece45
 | [docs/sdk.md](docs/sdk.md) | Python SDK and OpenAI/Anthropic auto-instrumentation |
 | [docs/typescript-sdk.md](docs/typescript-sdk.md) | TypeScript/JavaScript SDK (`agentmesh-sdk`) |
 | [docs/datasets-and-experiments.md](docs/datasets-and-experiments.md) | Datasets, experiments, evaluators, LLM-as-judge, CI gating |
+| [docs/guardrails.md](docs/guardrails.md) | Policies, limits, approvals, simulation, and the kill switch |
 | [docs/alerts.md](docs/alerts.md) | Alert rules and Slack / Discord / webhook notifications |
 | [docs/mcp.md](docs/mcp.md) | MCP server for Claude Code, Cursor, and other MCP clients |
 | [Setup.md](Setup.md) | Full setup guide — providers, Docker, PostgreSQL, troubleshooting |

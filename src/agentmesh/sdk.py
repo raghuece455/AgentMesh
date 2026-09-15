@@ -285,6 +285,8 @@ class AgentMeshConfig:
     capture_content: bool = True
     flush_interval: float = 1.0
     max_batch_size: int = 512
+    guardrails: bool = True
+    policies: list[Any] = field(default_factory=list)
 
 
 class AgentMeshClient:
@@ -309,6 +311,26 @@ class AgentMeshClient:
                 exporter = LocalStoreExporter(config.db_path, config.capture_content)
         self.exporter = exporter
         self.processor = BatchProcessor(exporter, config.max_batch_size, config.flush_interval)
+        self.guardrails = self._create_guardrails(config, exporter)
+
+    @staticmethod
+    def _create_guardrails(config: AgentMeshConfig, exporter: SpanExporter) -> Any:
+        """Guardrails read policies and halts from wherever this client sends traces."""
+        if not config.guardrails:
+            return None
+        from agentmesh.guardrails import Guardrails, HttpBackend, StoreBackend
+
+        backend: Any = None
+        if isinstance(exporter, HttpExporter):
+            backend = HttpBackend(exporter.endpoint, exporter.api_key)
+        elif isinstance(exporter, LocalStoreExporter):
+            local = exporter
+            backend = StoreBackend(lambda: local.store)
+        if backend is None and not config.policies:
+            return None
+        return Guardrails(
+            backend, list(config.policies), service=config.service_name, environment=config.environment, capture_content=config.capture_content
+        )
 
     def export(self, span: SpanData) -> None:
         if self.config.enabled:
@@ -342,13 +364,23 @@ def init(
     flush_interval: float = 1.0,
     max_batch_size: int = 512,
     exporter: SpanExporter | None = None,
+    policies: list[Any] | None = None,
+    guardrails: bool | None = None,
 ) -> AgentMeshClient:
-    """Configure tracing. Every argument falls back to an environment variable.
+    """Configure tracing and guardrails. Every argument falls back to an environment variable.
 
     ``AGENTMESH_ENDPOINT``, ``AGENTMESH_API_KEY``, ``AGENTMESH_DB_URL``,
     ``AGENTMESH_SERVICE_NAME`` (or ``OTEL_SERVICE_NAME``), ``AGENTMESH_ENVIRONMENT``,
-    ``AGENTMESH_TRACING_ENABLED``, ``AGENTMESH_CAPTURE_CONTENT``.
+    ``AGENTMESH_TRACING_ENABLED``, ``AGENTMESH_CAPTURE_CONTENT``, ``AGENTMESH_GUARDRAILS``,
+    ``AGENTMESH_POLICY_FILE``.
+
+    ``policies`` adds guardrail policies in code (``Policy`` objects, dicts, YAML/JSON text, or
+    file paths) on top of the policies saved on the server or in the database.
     """
+    policy_file = os.getenv("AGENTMESH_POLICY_FILE")
+    configured_policies = list(policies or [])
+    if policy_file:
+        configured_policies.extend(path.strip() for path in policy_file.split(os.pathsep) if path.strip())
     global _client
     config = AgentMeshConfig(
         endpoint=endpoint if endpoint is not None else os.getenv("AGENTMESH_ENDPOINT") or None,
@@ -365,6 +397,8 @@ def init(
         else _env_flag("AGENTMESH_CAPTURE_CONTENT", True),
         flush_interval=flush_interval,
         max_batch_size=max_batch_size,
+        guardrails=guardrails if guardrails is not None else _env_flag("AGENTMESH_GUARDRAILS", True),
+        policies=configured_policies,
     )
     with _client_lock:
         previous = _client
@@ -435,6 +469,14 @@ class Span:
         self.status_message: str | None = None
         self._tokens: list[tuple[contextvars.ContextVar[Any], contextvars.Token[Any]]] = []
         self._trace_attributes = trace_attributes
+        # Guardrails: the agent this span runs under, the raw input policies match against, and
+        # whether the span has been checked (spans are checked once, before they first run).
+        self._agent_name: str | None = name if kind == "agent" else (parent._agent_name if parent is not None else None)
+        self._policy_input: Any = None
+        self._policy_checked = False
+        guardrails = _guardrails()
+        if guardrails is not None and guardrails.active:
+            guardrails.register_span(self.trace_id, self.span_id, self.parent_span_id, kind == "agent")
 
         operation = KIND_OPERATION.get(kind)
         if operation:
@@ -554,11 +596,88 @@ class Span:
     ) -> None:
         score(name, value, trace_id=self.trace_id, span_id=self.span_id, comment=comment, label=label)
 
+    # -- guardrails ----------------------------------------------------------
+    def _policy_context(self, arguments: Any = None) -> Any:
+        from agentmesh.policy import ActionContext
+
+        kind = {"llm": "llm", "embedding": "llm", "tool": "tool", "agent": "agent"}.get(self.kind, "other")
+        return ActionContext(
+            kind=kind,
+            name=self.name,
+            trace_id=self.trace_id,
+            span_id=self.span_id,
+            parent_span_id=self.parent_span_id,
+            agent=self._agent_name,
+            model=self.attributes.get("gen_ai.request.model"),
+            provider=self.attributes.get("gen_ai.provider.name"),
+            arguments=arguments if arguments is not None else self._policy_input,
+        )
+
+    def _record_decision(self, decision: Any) -> None:
+        self.add_event(
+            "agentmesh.policy.decision",
+            {
+                "agentmesh.policy.action": decision.action,
+                "agentmesh.policy.enforced": decision.enforced,
+                "agentmesh.policy.rule": decision.rule,
+                "agentmesh.policy.reason": decision.reason,
+                "agentmesh.policy.kind": decision.kind,
+                "agentmesh.policy.target": decision.target,
+                "agentmesh.policy.name": decision.policy_name,
+                "agentmesh.policy.id": decision.policy_id,
+                "agentmesh.policy.agent": self._agent_name,
+                "agentmesh.policy.details": json.dumps(decision.details, default=str) if decision.details else None,
+            },
+        )
+
+    def _blocked(self, exc: BaseException) -> None:
+        self.set_attribute("agentmesh.policy.blocked", True)
+        self.record_exception(exc)
+        self.end()
+
+    def enforce(self, arguments: Any = None) -> None:
+        """Check this span against guardrail policies before it runs. Raises ``PolicyViolation``.
+
+        Called automatically when the span is entered; call it yourself for spans you never enter.
+        """
+        if self._policy_checked:
+            return
+        self._policy_checked = True
+        guardrails = _guardrails()
+        if guardrails is None or not guardrails.active:
+            return
+        from agentmesh.errors import PolicyViolation
+
+        try:
+            guardrails.check(self._policy_context(arguments), self._record_decision)
+        except PolicyViolation as exc:
+            self._blocked(exc)
+            raise
+
+    async def aenforce(self, arguments: Any = None) -> None:
+        """:meth:`enforce` for async code; waiting for an approval does not block the event loop."""
+        if self._policy_checked:
+            return
+        self._policy_checked = True
+        guardrails = _guardrails()
+        if guardrails is None or not guardrails.active:
+            return
+        from agentmesh.errors import PolicyViolation
+
+        try:
+            await guardrails.acheck(self._policy_context(arguments), self._record_decision)
+        except PolicyViolation as exc:
+            self._blocked(exc)
+            raise
+
     # -- lifecycle ----------------------------------------------------------
     def end(self) -> None:
         if self.end_time is not None:
             return
         self.end_time = _now()
+        guardrails = _guardrails()
+        if guardrails is not None and guardrails.active:
+            self._account_usage(guardrails)
         client = get_client()
         client.export(
             SpanData(
@@ -578,7 +697,29 @@ class Span:
             )
         )
 
+    def _account_usage(self, guardrails: Any) -> None:
+        """Add an LLM call's tokens and cost to its trace, for cost and token limits."""
+        if self.kind not in {"llm", "embedding"}:
+            return
+        input_tokens = int(self.attributes.get("gen_ai.usage.input_tokens") or 0)
+        output_tokens = int(self.attributes.get("gen_ai.usage.output_tokens") or 0)
+        cost = self.attributes.get("agentmesh.cost_usd")
+        if cost is None and (input_tokens or output_tokens):
+            from agentmesh.pricing import estimate_model_cost
+
+            cost = estimate_model_cost(
+                self.attributes.get("gen_ai.provider.name"),
+                self.attributes.get("gen_ai.response.model") or self.attributes.get("gen_ai.request.model"),
+                input_tokens,
+                output_tokens,
+                int(self.attributes.get("gen_ai.usage.cache_read.input_tokens") or 0),
+            ).cost_usd
+        if input_tokens or output_tokens or cost:
+            guardrails.add_usage(self.trace_id, input_tokens + output_tokens, float(cost or 0.0))
+
     def activate(self) -> Span:
+        if not self._policy_checked:
+            self.enforce()
         self._tokens.append((_current_span, _current_span.set(self)))
         if self._trace_attributes is not None or self.parent_span_id is None:
             # Always scope trace-level context to traces and root spans, so values set by
@@ -607,6 +748,7 @@ class Span:
         return False
 
     async def __aenter__(self) -> Span:
+        await self.aenforce()
         return self.__enter__()
 
     async def __aexit__(self, exc_type: Any, exc: BaseException | None, tb: Any) -> bool:
@@ -618,6 +760,7 @@ def span(name: str, kind: str = "chain", *, input: Any = None, attributes: dict[
     created = Span(name, kind, attributes)
     if input is not None:
         created.set_input(input)
+        created._policy_input = input
     return created
 
 
@@ -643,6 +786,7 @@ def trace(
     created = Span(name, kind, attributes, trace_attributes=trace_attributes)
     if input is not None:
         created.set_input(input)
+        created._policy_input = input
     return created
 
 
@@ -722,6 +866,8 @@ def observe(
 
         def _start(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Span:
             created = Span(span_name, kind, attributes)
+            # Guardrails match arguments by name, even when content capture is off.
+            created._policy_input = _named_arguments(fn, args, kwargs)
             if capture_input:
                 created.set_input(_bind_arguments(fn, args, kwargs))
             return created
@@ -731,6 +877,7 @@ def observe(
             @functools.wraps(fn)
             async def async_gen_wrapper(*args: Any, **kwargs: Any) -> Any:
                 created = _start(args, kwargs)
+                await created.aenforce()
                 items: list[Any] = []
                 generator = fn(*args, **kwargs)
                 try:
@@ -763,6 +910,7 @@ def observe(
             @functools.wraps(fn)
             def gen_wrapper(*args: Any, **kwargs: Any) -> Any:
                 created = _start(args, kwargs)
+                created.enforce()
                 items: list[Any] = []
                 generator = fn(*args, **kwargs)
                 try:
@@ -796,7 +944,9 @@ def observe(
 
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-                with _start(args, kwargs) as created:
+                started = _start(args, kwargs)
+                await started.aenforce()
+                with started as created:
                     result = await fn(*args, **kwargs)
                     if capture_output:
                         created.set_output(result)
@@ -828,6 +978,10 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds")
 
 
+def _guardrails() -> Any:
+    return get_client().guardrails
+
+
 def _env_flag(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -839,7 +993,7 @@ def _capture_content() -> bool:
     return _client.config.capture_content if _client is not None else _env_flag("AGENTMESH_CAPTURE_CONTENT", True)
 
 
-def _bind_arguments(fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+def _named_arguments(fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
     try:
         bound = inspect.signature(fn).bind_partial(*args, **kwargs)
     except (TypeError, ValueError):
@@ -847,6 +1001,11 @@ def _bind_arguments(fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[
     values = dict(bound.arguments)
     for skipped in ("self", "cls"):
         values.pop(skipped, None)
+    return values
+
+
+def _bind_arguments(fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+    values = _named_arguments(fn, args, kwargs)
     if len(values) == 1:
         return next(iter(values.values()))
     return values

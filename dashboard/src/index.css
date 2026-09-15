@@ -172,7 +172,8 @@ body {
   to { background-position: 200px 0; }
 }
 
-.animate-fade-in { animation: am-fade-in 180ms ease-out both; }
+/* backwards, not both: a transform left on the element would trap position: fixed descendants. */
+.animate-fade-in { animation: am-fade-in 180ms ease-out backwards; }
 .animate-slide-in { animation: am-slide-in 200ms ease-out both; }
 .animate-live { animation: am-pulse 1.8s ease-in-out infinite; }
 

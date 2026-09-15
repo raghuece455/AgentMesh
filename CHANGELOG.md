@@ -6,7 +6,22 @@ All notable changes to AgentMesh are documented here. AgentMesh follows [Semanti
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+- **Guardrails.** Policies checked before every tool call, LLM call, and agent start in the Python SDK (`@observe`, `span()`), OpenAI and Anthropic instrumentation (before the HTTP request), and the AgentMesh runtime. Rules match on tool, model, agent, service, environment, arguments, or an input regex and `deny`, `require_approval`, `warn`, or `allow`. Per-trace limits stop tool loops (`max_repeated_calls`), runaway spend and tokens, long runs, deep agent nesting, and swarm fan-out. `monitor` mode records what would be blocked without blocking. Blocked calls raise `agentmesh.PolicyViolation`. See [docs/guardrails.md](docs/guardrails.md).
+- **Kill switch.** Halt a trace, an agent, a service, or everything from the dashboard, `agentmesh halt create`, or `POST /api/halts`; running agents stop at their next call (`AgentHalted`) within seconds. Halts and releases are audited.
+- **Blocking approvals.** `require_approval` pauses the call until a reviewer answers on the Approvals page, without blocking the event loop in async code; unanswered requests are denied after `approval.timeout_seconds`.
+- **Policy simulation.** Replay recorded traces through a draft or saved policy to see which traces and calls it would have stopped: dashboard editor, `agentmesh policy simulate`, `POST /api/policies/simulate`.
+- **Guardrails page** in the dashboard: active halts, blocked/approval/would-block counts, policies with a YAML editor and templates, decisions log, and halt history. Traces stopped by a policy show a callout with each stopped call. `g r` opens the page.
+- `agentmesh policy validate | apply | list | show | enable | disable | remove | simulate | decisions` and `agentmesh halt create | list | release`.
+- Policy, decision, halt, runtime-config, and approval-request endpoints under `/api/policies`, `/api/policy-decisions`, `/api/halts`, `/api/guardrails/*`, and `/api/approvals`.
+- `agentmesh.init(policies=[...], guardrails=True)`, plus `AGENTMESH_POLICY_FILE`, `AGENTMESH_GUARDRAILS`, `AGENTMESH_GUARDRAILS_REFRESH_SECONDS`, and `AGENTMESH_GUARDRAILS_FAIL_CLOSED`.
+- `examples/guardrails.py` and `examples/policies/production-safety.yaml`.
+
+### Changed
+- PyYAML is now a dependency (policies are written in YAML).
+
+### Fixed
+- Dashboard side panels and toasts were positioned relative to the page instead of the window after the page's entry animation, so a panel opened on a scrolled page could appear offset.
 
 ---
 

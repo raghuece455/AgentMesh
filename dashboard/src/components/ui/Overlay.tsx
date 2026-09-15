@@ -17,12 +17,15 @@ function useEscape(open: boolean, onClose: () => void) {
   }, [open, onClose])
 }
 
-/** Right-hand slide-over panel, used for create forms and record details. */
+/**
+ * Right-hand slide-over panel, used for create forms and record details. Rendered in a portal:
+ * an animated (transformed) ancestor would otherwise become the containing block for `fixed`.
+ */
 export function Drawer({ open, onClose, title, description, children, footer, width = 'max-w-lg' }: { open: boolean; onClose: () => void; title: ReactNode; description?: ReactNode; children: ReactNode; footer?: ReactNode; width?: string }) {
   useEscape(open, onClose)
   if (!open)
     return null
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex justify-end">
       <button aria-label="Close panel" className="absolute inset-0 bg-black/30 backdrop-blur-[1px] animate-fade-in" onClick={onClose} />
       <aside role="dialog" aria-modal="true" className={cn('animate-slide-in relative flex h-full w-full flex-col border-l border-line bg-surface shadow-pop', width)}>
@@ -36,7 +39,8 @@ export function Drawer({ open, onClose, title, description, children, footer, wi
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer && <footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
       </aside>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -115,9 +119,10 @@ export function Toast({ message, tone = 'neutral', onDone }: { message: string; 
   }, [message, onDone])
   if (!message)
     return null
-  return (
+  return createPortal(
     <div role="status" className={cn('animate-fade-in fixed right-4 bottom-4 z-[60] max-w-sm rounded-lg border px-3.5 py-2.5 text-[13px] shadow-pop', tone === 'danger' ? 'border-danger/30 bg-danger-soft text-danger-text' : tone === 'success' ? 'border-success/30 bg-surface text-fg' : 'border-line bg-surface text-fg')}>
       {message}
-    </div>
+    </div>,
+    document.body,
   )
 }

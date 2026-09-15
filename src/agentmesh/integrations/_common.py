@@ -59,6 +59,14 @@ def given(kwargs: dict[str, Any], key: str) -> Any:
     return value if is_given(value) else None
 
 
+POLICY_REQUEST_KEYS = ("model", "messages", "input", "instructions", "system", "tools", "max_tokens", "max_completion_tokens", "max_output_tokens")
+
+
+def policy_arguments(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """The parts of a model request that guardrail rules can match (``arguments`` / ``input_regex``)."""
+    return {key: kwargs[key] for key in POLICY_REQUEST_KEYS if key in kwargs and is_given(kwargs[key])}
+
+
 def safe(function: Callable[..., None], *args: Any) -> None:
     try:
         function(*args)
@@ -72,6 +80,7 @@ def call_sync(
     if _in_call.get():
         return original(resource, *args, **kwargs)
     span = handler.start(resource, kwargs)
+    span.enforce(policy_arguments(kwargs))  # guardrails: raises PolicyViolation before the request is sent
     token = _in_call.set(True)
     try:
         response = original(resource, *args, **kwargs)
@@ -94,6 +103,7 @@ async def call_async(
     if _in_call.get():
         return await original(resource, *args, **kwargs)
     span = handler.start(resource, kwargs)
+    await span.aenforce(policy_arguments(kwargs))
     token = _in_call.set(True)
     try:
         response = await original(resource, *args, **kwargs)

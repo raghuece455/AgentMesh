@@ -55,6 +55,7 @@ def _seed(store: SQLiteStore, database: str, reset: bool, reset_mode: str) -> Js
     recorder = TraceRecorder(store, logger=_quiet_logger())
     # Experiments first, so their traces sort below the headline demo traces.
     experiments = _seed_support_experiments(store)
+    guarded_trace = _seed_guardrails(store)
     traces = [
         _seed_research_pipeline(store, recorder),
         _seed_rag_answer(store, recorder),
@@ -65,6 +66,7 @@ def _seed(store: SQLiteStore, database: str, reset: bool, reset_mode: str) -> Js
     ]
     session_traces = _seed_otel_support_session(store)
     traces.extend(session_traces)
+    traces.append(guarded_trace)
     store.add_trace_to_dataset("support-answers", session_traces[1], metadata={"note": "approved answer from production"})
     alerts = _seed_alert_rules(store)
     store.close()
@@ -256,6 +258,97 @@ def _seed_support_experiments(store: SQLiteStore) -> list[str]:
         sdk._client.shutdown()
         sdk._client = previous
     return [run.experiment_id for run in runs]
+
+
+DEMO_POLICIES = [
+    """name: production-safety
+description: Destructive and money-moving tools need a person.
+mode: enforce
+rules:
+  - name: no-production-deletes
+    match: {tool: ["delete_*", "drop_*"], arguments: {env: production}}
+    action: deny
+    reason: Deleting production data needs a person.
+  - name: refunds-need-approval
+    match: {tool: issue_refund}
+    action: require_approval
+""",
+    """name: runaway-agents
+description: Stop agents that loop, fan out, or overspend.
+mode: enforce
+limits:
+  max_repeated_calls: 3
+  max_cost_usd: 5
+  max_agent_depth: 4
+  max_child_agents: 10
+""",
+    """name: approved-models
+description: Trying out an approved-model list before enforcing it.
+mode: monitor
+rules:
+  - name: approved-models-only
+    match: {kind: llm}
+    except: {model: ["gpt-4.1*", "claude-*"]}
+    action: deny
+""",
+]
+
+
+def _seed_guardrails(store: SQLiteStore) -> str:
+    """Policies, a trace they stopped calls in, and a released halt, for the Guardrails page."""
+    from agentmesh import sdk
+    from agentmesh.errors import PolicyViolation
+    from agentmesh.guardrails import Guardrails, StoreBackend
+    from agentmesh.policy import Policy
+
+    for text in DEMO_POLICIES:
+        if store.get_policy(Policy.from_spec(text).name) is None:
+            store.create_policy({"text": text})
+
+    class _StoreExporter(sdk.SpanExporter):
+        def export(self, spans: list[object]) -> None:
+            store.ingest_spans(spans, source="sdk")
+
+    @sdk.observe(kind="tool", name="delete_account")
+    def delete_account(customer_id: str, env: str) -> str:
+        return "deleted"
+
+    @sdk.observe(kind="tool", name="lookup_invoice")
+    def lookup_invoice(invoice_id: str) -> None:
+        return None  # never found, so the agent keeps retrying
+
+    @sdk.observe(kind="agent", name="billing_agent")
+    def billing_agent(request: str) -> str:
+        try:
+            delete_account("cus_1042", env="production")
+        except PolicyViolation:
+            pass
+        for _ in range(5):
+            try:
+                lookup_invoice("INV-2291")
+            except PolicyViolation:
+                break
+        with sdk.span("chat gpt-4o-mini", kind="llm", attributes={"gen_ai.request.model": "gpt-4o-mini", "gen_ai.provider.name": "openai"}) as call:
+            call.set_attribute("gen_ai.usage.input_tokens", 840)
+            call.set_attribute("gen_ai.usage.output_tokens", 96)
+            call.set_output("I can't close the account myself; a teammate will confirm the deletion.")
+        return "Escalated: account deletion needs a person; invoice INV-2291 not found."
+
+    previous = sdk._client
+    client = sdk.AgentMeshClient(sdk.AgentMeshConfig(service_name="billing-bot", environment="demo"), _StoreExporter())
+    backend = StoreBackend(store)
+    client.guardrails = Guardrails(backend, service="billing-bot", environment="demo")
+    sdk._client = client
+    try:
+        with sdk.trace("billing-request (guarded)", tags=["guardrails"], input="Close my account and resend invoice INV-2291") as root:
+            root.set_output(billing_agent("Close my account and resend invoice INV-2291"))
+        trace_id = root.trace_id
+    finally:
+        client.shutdown()
+        sdk._client = previous
+    halt = store.create_halt({"scope": "agent", "value": "research_swarm", "reason": "Fan-out spiked to 40 sub-agents in two minutes", "created_by": "demo"})
+    store.release_halt(halt["halt_id"], "demo")
+    return trace_id
 
 
 def _seed_alert_rules(store: SQLiteStore) -> list[str]:

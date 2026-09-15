@@ -457,6 +457,14 @@ def _apply_lightweight_migrations(conn: sqlite3.Connection) -> None:
         "insert or ignore into schema_migrations (version, name, applied_at) values (3, 'datasets_experiments_alerts', ?)",
         (utc_now(),),
     )
+    from agentmesh.policy_store import POLICY_SCHEMA
+
+    for statement in POLICY_SCHEMA:
+        conn.execute(statement)
+    conn.execute(
+        "insert or ignore into schema_migrations (version, name, applied_at) values (4, 'policies_guardrails', ?)",
+        (utc_now(),),
+    )
 
 
 # v0.4: datasets, experiments, and alerting. Written in the SQL subset shared by SQLite and PostgreSQL.

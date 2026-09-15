@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Settings,
   ShieldCheck,
+  ShieldHalf,
   Waypoints,
   Wrench,
 } from 'lucide-react'
@@ -69,6 +70,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Operate',
     items: [
+      { id: 'guardrails', label: 'Guardrails', description: 'Policies, limits, and the kill switch for agents', icon: <ShieldHalf /> },
       { id: 'approvals', label: 'Approvals', description: 'Human review for risky tool calls', icon: <ShieldCheck /> },
       { id: 'replay', label: 'Replay', description: 'Re-run a trace from recorded outputs', icon: <RotateCcw /> },
     ],

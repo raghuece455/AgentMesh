@@ -1,0 +1,38 @@
+# Guardrails for a customer-support agent swarm. See docs/guardrails.md.
+#
+#   agentmesh policy simulate examples/policies/production-safety.yaml --hours 24
+#   agentmesh policy apply examples/policies/production-safety.yaml
+
+name: production-safety
+description: Stop loops and runaway spend; destructive and money-moving tools need a person.
+mode: monitor                  # record what would be blocked; switch to enforce when the simulation looks right
+
+limits:                        # per trace
+  max_repeated_calls: 3        # the same tool with the same arguments
+  max_tool_calls: 100
+  max_cost_usd: 5
+  max_agent_depth: 4           # agents starting agents starting agents
+  max_child_agents: 10         # sub-agents one agent may start
+
+rules:                         # checked in order; the first match wins
+  - name: no-production-deletes
+    match: {tool: ["delete_*", "drop_*", "truncate_*"], arguments: {env: production}}
+    action: deny
+    reason: Deleting production data needs a person.
+
+  - name: refunds-need-approval
+    match: {tool: issue_refund}
+    action: require_approval
+
+  - name: api-keys-in-tool-input
+    match: {kind: tool, input_regex: "(sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})"}
+    action: deny
+    reason: A tool call contained what looks like an API key.
+
+  - name: approved-models-only
+    match: {kind: llm}
+    except: {model: ["gpt-4.1*", "gpt-5*", "claude-*"]}
+    action: deny
+
+approval:
+  timeout_seconds: 300         # approvals nobody answers are denied

@@ -47,6 +47,16 @@ class Agent:
     max_tokens: int | None = None
 
     async def run(self, message: AgentMessage, context: object) -> AgentResult:
+        from agentmesh.runtime_guardrails import check_runtime_action
+
+        guardrails = await check_runtime_action(
+            context,
+            kind="agent",
+            name=self.name,
+            agent=self.name,
+            parent_span_id=getattr(context, "active_task_span_id", None),
+            arguments=message.to_json(),
+        )
         span_id = context.recorder.event(
             context.trace_id,
             "agent.started",
@@ -54,6 +64,8 @@ class Agent:
             {"role": self.role, "message": message.to_json()},
             parent_span_id=getattr(context, "active_task_span_id", None),
         )
+        if guardrails is not None:
+            guardrails.register_span(context.trace_id, span_id, getattr(context, "active_task_span_id", None), is_agent=True)
         previous_agent_span = getattr(context, "active_agent_span_id", None)
         context.active_agent_span_id = span_id
         try:
@@ -86,6 +98,18 @@ class Agent:
                 user_prompt=request.prompt,
                 metadata=request.metadata,
             )
+        # Rules match the model that will serve the call: the requested one, else the provider's default.
+        effective_model = request.model or getattr(self.model_provider, "model", None)
+        guardrails = await check_runtime_action(
+            context,
+            kind="llm",
+            name=f"chat {effective_model or self.model_provider.name}",
+            agent=self.name,
+            parent_span_id=span_id,
+            arguments={"model": effective_model, "system": request.system, "prompt": request.prompt, "max_tokens": request.max_tokens},
+            model=effective_model,
+            provider=self.model_provider.name,
+        )
         context.recorder.event(
             context.trace_id,
             "model.call",
@@ -144,6 +168,8 @@ class Agent:
         )
         cost_usd = response.cost_usd if response.cost_usd > 0 else cost_estimate.cost_usd
         cost_status = str(response.raw.get("cost_status") or ("exact" if response.cost_usd > 0 else cost_estimate.status))
+        if guardrails is not None:
+            guardrails.add_usage(context.trace_id, response.prompt_tokens + response.completion_tokens, cost_usd)
         context.budget.reserve(response.prompt_tokens, response.completion_tokens, cost_usd)
         context.recorder.metrics.observe("agentmesh_model_latency_ms", latency_ms, {"agent": self.name})
         context.recorder.event(

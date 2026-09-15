@@ -228,6 +228,45 @@ def main() -> None:
     alerts_history.add_argument("--rule")
     alerts_history.add_argument("--limit", type=int, default=50)
 
+    policy_parser = subcommands.add_parser("policy", help="Guardrail policies that block, pause, or limit what agents do")
+    policy_subcommands = policy_parser.add_subparsers(dest="policy_command", required=True)
+    policy_validate = policy_subcommands.add_parser("validate", help="Check a policy file without saving it")
+    policy_validate.add_argument("file", help="YAML or JSON policy file")
+    policy_apply = policy_subcommands.add_parser("apply", help="Create or update a policy from a file (matched by name)")
+    policy_apply.add_argument("file")
+    policy_apply.add_argument("--disabled", action="store_true", help="Save without enforcing it yet")
+    policy_subcommands.add_parser("list", help="List policies")
+    policy_show = policy_subcommands.add_parser("show", help="Show a policy")
+    policy_show.add_argument("name")
+    policy_enable = policy_subcommands.add_parser("enable", help="Turn a policy on")
+    policy_enable.add_argument("name")
+    policy_disable = policy_subcommands.add_parser("disable", help="Turn a policy off")
+    policy_disable.add_argument("name")
+    policy_remove = policy_subcommands.add_parser("remove", help="Delete a policy")
+    policy_remove.add_argument("name")
+    policy_simulate = policy_subcommands.add_parser("simulate", help="Replay recent traces through a policy to see what it would have blocked")
+    policy_simulate.add_argument("target", help="A policy file, or the name of a saved policy")
+    policy_simulate.add_argument("--limit", type=int, default=200, help="Most recent traces to replay")
+    policy_simulate.add_argument("--hours", type=float, help="Only traces started in the last N hours")
+    policy_decisions = policy_subcommands.add_parser("decisions", help="Show recent guardrail decisions")
+    policy_decisions.add_argument("--trace")
+    policy_decisions.add_argument("--action", choices=["blocked", "would_block", "require_approval", "warn", "allow", "deny"])
+    policy_decisions.add_argument("--limit", type=int, default=50)
+
+    halt_parser = subcommands.add_parser("halt", help="Kill switch: stop agents now, everywhere guardrails run")
+    halt_subcommands = halt_parser.add_subparsers(dest="halt_command", required=True)
+    halt_create = halt_subcommands.add_parser("create", help="Stop a trace, an agent, a service, or everything")
+    halt_scope = halt_create.add_mutually_exclusive_group(required=True)
+    halt_scope.add_argument("--all", action="store_true", help="Stop every agent")
+    halt_scope.add_argument("--trace", help="Stop one trace")
+    halt_scope.add_argument("--agent", help="Stop an agent by name")
+    halt_scope.add_argument("--service", help="Stop a service by name")
+    halt_create.add_argument("--reason")
+    halt_list = halt_subcommands.add_parser("list", help="List halts")
+    halt_list.add_argument("--all", action="store_true", help="Include released halts")
+    halt_release = halt_subcommands.add_parser("release", help="Lift a halt")
+    halt_release.add_argument("halt_id")
+
     args = parser.parse_args()
     if args.command == "init":
         _init_project()
@@ -325,6 +364,89 @@ def main() -> None:
         _run_experiments(args.db, args)
     elif args.command == "alerts":
         _run_alerts(args.db, args)
+    elif args.command == "policy":
+        _run_policy(args.db, args)
+    elif args.command == "halt":
+        _run_halt(args.db, args)
+
+
+def _read_policy_file(path: str) -> str:
+    file = Path(path)
+    if not file.is_file():
+        raise SystemExit(f"Policy file not found: {path}")
+    return file.read_text(encoding="utf-8")
+
+
+def _run_policy(db_path: str, args: argparse.Namespace) -> None:
+    from agentmesh.policy import Policy, PolicyError
+    from agentmesh.policy_store import validate_policy
+
+    command = args.policy_command
+    if command == "validate":
+        result = validate_policy({"text": _read_policy_file(args.file)})
+        _print(result)
+        if not result["valid"]:
+            raise SystemExit(1)
+        return
+    store = create_store(db_path)
+    try:
+        if command == "apply":
+            text = _read_policy_file(args.file)
+            name = Policy.from_spec(text).name
+            payload = {"text": text, "enabled": not args.disabled}
+            existing = store.get_policy(name)
+            _print(store.update_policy(name, payload) if existing else store.create_policy(payload))
+        elif command == "list":
+            _print(store.list_policies())
+        elif command in {"show", "enable", "disable", "remove"}:
+            if command == "show":
+                result = store.get_policy(args.name)
+            elif command == "remove":
+                result = {"deleted": True} if store.delete_policy(args.name) else None
+            else:
+                result = store.update_policy(args.name, {"enabled": command == "enable"})
+            if result is None:
+                raise SystemExit(f"Policy not found: {args.name}")
+            _print(result)
+        elif command == "simulate":
+            if Path(args.target).is_file():
+                policies = [Policy.from_spec(_read_policy_file(args.target))]
+            else:
+                saved = store.get_policy(args.target)
+                if saved is None:
+                    raise SystemExit(f"No policy file or saved policy named: {args.target}")
+                policies = [Policy.from_spec(saved["spec"], policy_id=saved["policy_id"])]
+            since = None
+            if args.hours:
+                from datetime import UTC, datetime, timedelta
+
+                since = (datetime.now(UTC) - timedelta(hours=args.hours)).isoformat()
+            _print(store.simulate_policy(policies, args.limit, since))
+        elif command == "decisions":
+            _print(store.list_policy_decisions(limit=args.limit, trace_id=args.trace, action=args.action))
+    except PolicyError as exc:
+        _print({"valid": False, "errors": exc.errors})
+        raise SystemExit(1) from exc
+
+
+def _run_halt(db_path: str, args: argparse.Namespace) -> None:
+    store = create_store(db_path)
+    command = args.halt_command
+    if command == "create":
+        scope, value = next(
+            (name, getattr(args, name)) for name in ("all", "trace", "agent", "service") if getattr(args, name)
+        )
+        halt = store.create_halt({"scope": scope, "value": None if scope == "all" else value, "reason": args.reason, "created_by": "cli"})
+        store.audit(None, "cli", "guardrails.halt", scope, {"halt": halt})
+        _print(halt)
+    elif command == "list":
+        _print(store.list_halts(active_only=not args.all))
+    elif command == "release":
+        halt = store.release_halt(args.halt_id, "cli")
+        if halt is None:
+            raise SystemExit(f"Halt not found: {args.halt_id}")
+        store.audit(None, "cli", "guardrails.release", str(halt["scope"]), {"halt": halt})
+        _print(halt)
 
 
 def _json_arg(value: str | None) -> object:

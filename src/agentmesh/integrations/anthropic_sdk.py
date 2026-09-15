@@ -19,6 +19,7 @@ from agentmesh.integrations._common import (
     given,
     patch_class,
     patch_instance,
+    policy_arguments,
     safe,
     to_dict,
     unpatch_class,
@@ -199,17 +200,21 @@ def _start_stream(
         created.record_exception(exc)
         created.end()
         raise
-    return _AsyncManagerProxy(manager, created, handler) if is_async else _ManagerProxy(manager, created, handler)
+    proxy_class = _AsyncManagerProxy if is_async else _ManagerProxy
+    return proxy_class(manager, created, handler, policy_arguments(kwargs))
 
 
 class _ManagerProxy:
-    def __init__(self, manager: Any, span_: Span, handler: _MessagesHandler) -> None:
+    def __init__(self, manager: Any, span_: Span, handler: _MessagesHandler, arguments: dict[str, Any]) -> None:
         self._manager = manager
         self._span = span_
         self._handler = handler
+        self._arguments = arguments
         self._stream: Any = None
 
     def __enter__(self) -> Any:
+        # The request is sent when the stream is entered, so guardrails check here.
+        self._span.enforce(self._arguments)
         try:
             self._stream = self._manager.__enter__()
         except BaseException as exc:
@@ -228,6 +233,7 @@ class _ManagerProxy:
 
 class _AsyncManagerProxy(_ManagerProxy):
     async def __aenter__(self) -> Any:
+        await self._span.aenforce(self._arguments)
         try:
             self._stream = await self._manager.__aenter__()
         except BaseException as exc:

@@ -169,6 +169,26 @@ Kinds: `failure_rate`, `failure_count`, `cost`, `trace_cost`, `latency_p95`, `lo
 
 ---
 
+## Guardrails
+
+```bash
+agentmesh policy validate policy.yaml                # exit status 1 when invalid
+agentmesh policy apply policy.yaml [--disabled]      # create, or update the policy with the same name
+agentmesh policy list
+agentmesh policy show production-safety
+agentmesh policy enable production-safety            # also: disable, remove
+agentmesh policy simulate policy.yaml [--hours 24] [--limit 200]   # a file or a saved policy name
+agentmesh policy decisions [--action blocked|would_block|require_approval|warn|allow|deny] [--trace ID] [--limit 50]
+
+agentmesh halt create --service support-bot --reason "Refund loop"   # or --agent NAME, --trace ID, --all
+agentmesh halt list [--all]
+agentmesh halt release <halt_id>
+```
+
+See [guardrails.md](guardrails.md).
+
+---
+
 ## Health and Validation
 
 ```bash

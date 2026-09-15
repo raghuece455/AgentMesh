@@ -18,6 +18,7 @@ import {
   listAuditLogs,
   listCheckpoints,
   listEvaluations,
+  listHalts,
   listMemory,
   listMemoryOperations,
   listModelCalls,
@@ -52,6 +53,7 @@ import { ConnectPage } from './pages/ConnectPage'
 import { CostsPage } from './pages/CostsPage'
 import { DatasetsPage } from './pages/DatasetsPage'
 import { EvaluationsPage } from './pages/EvaluationsPage'
+import { GuardrailsPage } from './pages/GuardrailsPage'
 import { MemoryRagPage } from './pages/MemoryRagPage'
 import { ModelsPage } from './pages/ModelsPage'
 import { OverviewPage } from './pages/OverviewPage'
@@ -63,7 +65,7 @@ import { ToolsPage } from './pages/ToolsPage'
 import { TracesPage, type TraceFilters } from './pages/TracesPage'
 import { TraceView } from './pages/TraceView'
 import { WorkflowsPage } from './pages/WorkflowsPage'
-import type { AlertRule, JsonRecord, ReplayRun, SpanRecord, TraceDetail, TraceSummary, WorkflowGraph } from './types'
+import type { AlertRule, HaltRecord, JsonRecord, ReplayRun, SpanRecord, TraceDetail, TraceSummary, WorkflowGraph } from './types'
 import { errorText, parseFailedEndpoint, stringValue } from './utils/format'
 import { defaultSpan, rangeStart, TIME_RANGES, type TimeRange } from './utils/traces'
 
@@ -74,7 +76,7 @@ const SIDEBAR_KEY = 'agentmesh.sidebarCollapsed'
 const TRACE_PAGE_SIZE = 500
 const TRACE_FILTER_KEYS = ['q', 'status', 'workflow', 'model', 'provider', 'agent', 'tool', 'error_type', 'session_id'] as const
 /** Second key of the "g" shortcuts. */
-const GO_TO: Record<string, Section> = { o: 'overview', t: 'traces', s: 'sessions', d: 'datasets', e: 'evaluations', a: 'alerts', c: 'costs', m: 'models', w: 'workflows' }
+const GO_TO: Record<string, Section> = { o: 'overview', t: 'traces', s: 'sessions', d: 'datasets', e: 'evaluations', a: 'alerts', r: 'guardrails', c: 'costs', m: 'models', w: 'workflows' }
 
 /** Deep links: ?trace=<id> (used in alert notifications), ?page=datasets&experiment=<id>, ?page=<section>, &range=7d, and trace filters. */
 function initialLink(): { section: Section; traceId: string; experimentId?: string; range: TimeRange; filters: TraceFilters } {
@@ -129,6 +131,7 @@ export function App() {
   const [traceFilters, setTraceFilters] = useState<TraceFilters>(link.filters)
   const [data, setData] = useState<DashboardData>(emptyData)
   const [alertRules, setAlertRules] = useState<AlertRule[]>([])
+  const [activeHalts, setActiveHalts] = useState(0)
   const [selectedTraceId, setSelectedTraceId] = useState(link.traceId)
   const [traceDetail, setTraceDetail] = useState<TraceDetail | null>(null)
   const [traceLoading, setTraceLoading] = useState(false)
@@ -247,6 +250,7 @@ export function App() {
         sessions,
         integrations,
         rules,
+        halts,
       ] = await Promise.all([
         getHealth(),
         getOverview(),
@@ -275,10 +279,13 @@ export function App() {
         listSessions(),
         getIntegrations(),
         listAlertRules().catch(() => [] as AlertRule[]),
+        // Older servers have no guardrails endpoints.
+        listHalts().catch(() => [] as HaltRecord[]),
       ])
       setVersion(integrations.version || stringValue(health.version) || undefined)
       setData({ overview, traces, workflows, agents, providers, models, modelCalls, costs, costByWorkflow, costByAgent, costByModel, costByProvider, costByFailedRun, toolCalls, memoryRecords, memoryOperations, ragRetrievals, prompts, evaluations, evaluationSummary, approvals, checkpoints, auditLogs, sessions, integrations })
       setAlertRules(rules)
+      setActiveHalts(halts.length)
       const now = new Date().toISOString()
       setConnection(current => ({ ...current, backendStatus: 'ok', lastSuccessfulRefresh: now, lastUpdated: now, lastFailedEndpoint: null, lastError: null }))
       if (selectedRef.current.traceId)
@@ -536,6 +543,8 @@ export function App() {
         return <CostsPage summary={data.costs} traces={data.traces} range={range} byWorkflow={data.costByWorkflow} byAgent={data.costByAgent} byModel={data.costByModel} byProvider={data.costByProvider} byFailedRun={data.costByFailedRun} onTrace={openTrace} />
       case 'evaluations':
         return <EvaluationsPage summary={data.evaluationSummary} evaluations={data.evaluations} onTrace={openTrace} onSection={navigate} onRun={() => void runEvaluation({ evaluator: 'mock-evaluator', evaluator_type: 'deterministic_mock', score: 0.9, passed: true }).then(() => refresh())} />
+      case 'guardrails':
+        return <GuardrailsPage refreshKey={connection.lastSuccessfulRefresh} onTrace={openTrace} onHaltsChanged={setActiveHalts} />
       case 'approvals':
         return <ApprovalsPage approvals={data.approvals} onTrace={openTrace} onApprove={id => void approveRequest(id).then(() => { notify('Approved.', 'success'); return refresh() })} onReject={id => void rejectRequest(id).then(() => { notify('Rejected.'); return refresh() })} />
       case 'replay':
@@ -558,6 +567,7 @@ export function App() {
         badges={{
           approvals: pendingApprovals ? { value: pendingApprovals, tone: 'warning' } : undefined,
           alerts: firingAlerts ? { value: firingAlerts, tone: 'danger' } : undefined,
+          guardrails: activeHalts ? { value: activeHalts, tone: 'danger' } : undefined,
         }}
         version={version}
         mobileOpen={mobileNav}

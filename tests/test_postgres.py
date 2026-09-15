@@ -80,7 +80,7 @@ def test_postgres_matches_sqlite_across_the_api(tmp_path):
 
     # Demo trace ids are random, so pair the two databases' traces by name and order.
     pairs = list(zip(ordered(sqlite), ordered(postgres), strict=True))
-    assert len(pairs) == 17  # 9 demo traces plus 2 experiments x 4 items
+    assert len(pairs) == 18  # 10 demo traces plus 2 experiments x 4 items
     assert [(a["workflow_name"], a["status"], a["span_count"]) for a, _ in pairs] == [
         (b["workflow_name"], b["status"], b["span_count"]) for _, b in pairs
     ]
@@ -96,6 +96,7 @@ def test_postgres_matches_sqlite_across_the_api(tmp_path):
         ("/api/costs/summary",) * 2, ("/api/costs/by-model",) * 2, ("/api/costs/by-failed-run",) * 2, ("/api/tool-calls",) * 2,
         ("/api/memory/operations",) * 2, ("/api/rag/retrievals",) * 2, ("/api/prompts",) * 2, ("/api/approvals",) * 2,
         ("/api/evaluations/summary",) * 2, ("/api/datasets",) * 2, ("/api/experiments",) * 2, ("/api/alerts/rules",) * 2,
+        ("/api/policies",) * 2, ("/api/policy-decisions",) * 2, ("/api/guardrails/summary",) * 2, ("/api/halts?active=false",) * 2,
         tuple(f"/api/sessions/{value}" for value in ids["session_id"]),
         tuple(f"/api/agents/{value}/runs" for value in ids["agent_id"]),
         tuple(f"/api/workflows/{value}/graph" for value in ids["workflow_id"]),
@@ -170,8 +171,8 @@ def test_cli_against_postgres():
         assert completed.returncode == 0, completed.stderr
         return completed.stdout
 
-    assert json.loads(cli("demo", "seed", "--reset"))["traces_seeded"] == 9
-    assert len(json.loads(cli("traces", "list", "--limit", "50"))) == 17
+    assert json.loads(cli("demo", "seed", "--reset"))["traces_seeded"] == 10
+    assert len(json.loads(cli("traces", "list", "--limit", "50"))) == 18
     assert json.loads(cli("sessions", "list"))[0]["trace_count"] == 3
     doctor = json.loads(cli("doctor"))
     assert doctor["database_readable"] is True and doctor["trace_count"] >= 6

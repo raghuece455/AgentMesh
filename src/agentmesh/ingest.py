@@ -331,6 +331,7 @@ def ingest_spans(
             if item.agent_name:
                 _upsert_agent(conn, item)
             _write_evaluations(conn, item)
+            _write_policy_decisions(conn, item)
     return {"spans": len(normalized), "traces": len(by_trace), "trace_ids": list(by_trace)}
 
 
@@ -1163,6 +1164,45 @@ def _write_evaluations(conn: sqlite3.Connection, item: NormalizedSpan) -> None:
                 "comment": _str(attrs.get("gen_ai.evaluation.explanation")),
                 "source": "otel",
                 "created_at": event.get("time"),
+            },
+        )
+
+
+POLICY_DECISION_EVENT = "agentmesh.policy.decision"
+
+
+def _write_policy_decisions(conn: sqlite3.Connection, item: NormalizedSpan) -> None:
+    """Guardrail decisions travel as span events, so they reach the server with the span."""
+    from agentmesh.policy_store import save_decision
+
+    for position, event in enumerate(item.span.events):
+        if event.get("name") != POLICY_DECISION_EVENT:
+            continue
+        attrs = event.get("attributes") or {}
+        details = attrs.get("agentmesh.policy.details")
+        if isinstance(details, str):
+            try:
+                details = json.loads(details)
+            except ValueError:
+                details = {"raw": details}
+        save_decision(
+            conn,
+            {
+                "decision_id": f"decision_{item.span.span_id}_{position}",
+                "trace_id": item.span.trace_id,
+                "span_id": item.span.span_id,
+                "policy_id": _str(attrs.get("agentmesh.policy.id")),
+                "policy_name": _str(attrs.get("agentmesh.policy.name")),
+                "rule": _str(attrs.get("agentmesh.policy.rule")) or "unknown",
+                "action": _str(attrs.get("agentmesh.policy.action")) or "deny",
+                "enforced": attrs.get("agentmesh.policy.enforced") not in (False, "false", 0),
+                "kind": _str(attrs.get("agentmesh.policy.kind")),
+                "target": _str(attrs.get("agentmesh.policy.target")),
+                "agent": _str(attrs.get("agentmesh.policy.agent")) or item.agent_name,
+                "service": item.service_name,
+                "reason": _str(attrs.get("agentmesh.policy.reason")),
+                "details": details if isinstance(details, dict) else {},
+                "created_at": event.get("time") or item.span.start_time,
             },
         )
 

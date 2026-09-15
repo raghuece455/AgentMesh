@@ -17,6 +17,7 @@ class ErrorKind(str, Enum):
     BUDGET = "budget"
     STORAGE = "storage"
     SECURITY = "security"
+    POLICY = "policy"
     UNKNOWN = "unknown"
 
 
@@ -47,6 +48,21 @@ class PermissionDenied(AgentMeshError):
 class BudgetExceeded(AgentMeshError):
     def __init__(self, message: str, details: JsonObject | None = None) -> None:
         super().__init__(message, ErrorKind.BUDGET, details or {}, retryable=False)
+
+
+class PolicyViolation(AgentMeshError):
+    """A guardrail policy blocked a tool call, LLM call, or agent before it ran."""
+
+    def __init__(self, message: str, details: JsonObject | None = None) -> None:
+        super().__init__(message, ErrorKind.POLICY, details or {}, retryable=False)
+
+
+class AgentHalted(PolicyViolation):
+    """A halt (the kill switch) stopped this trace, agent, or service."""
+
+
+class ApprovalDenied(PolicyViolation):
+    """A call that needed approval was rejected or not approved in time."""
 
 
 class WorkflowCancelled(AgentMeshError):

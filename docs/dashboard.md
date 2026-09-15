@@ -34,10 +34,10 @@ This populates the database with a set of pre-built traces covering successful r
 
 ## Layout and Navigation
 
-- **Sidebar** groups pages by job: *Observe* (Traces, Sessions, Agents, Workflows), *Evaluate* (Datasets, Evaluations, Prompts), *Monitor* (Alerts, Costs, Models, Tools, Memory & RAG), and *Operate* (Approvals, Replay). Badges show firing alerts and pending approvals. Collapse it to icons with **Collapse**.
+- **Sidebar** groups pages by job: *Observe* (Traces, Sessions, Agents, Workflows), *Evaluate* (Datasets, Evaluations, Prompts), *Monitor* (Alerts, Costs, Models, Tools, Memory & RAG), and *Operate* (Guardrails, Approvals, Replay). Badges show firing alerts, active halts, and pending approvals. Collapse it to icons with **Collapse**.
 - **Time range** (1h, 24h, 7d, 30d, All) and **data scope** (all data, real runs, demo only) in the top bar apply to every page. The range is kept in the address bar as `&range=7d`.
 - **Search** with **Ctrl K** (**⌘ K** on macOS) or **/**: jump to any page, find a trace by name, id, status, error, model, or session, or switch the theme.
-- **Keyboard shortcuts** — press **?** for the full list. **g** then a letter goes to a page (**g t** Traces, **g s** Sessions, **g c** Costs, ...). In a trace, **j** / **k** move between spans, **[** / **]** open the previous or next trace, **c** opens Compare, and **Esc** returns to the list.
+- **Keyboard shortcuts** — press **?** for the full list. **g** then a letter goes to a page (**g t** Traces, **g s** Sessions, **g r** Guardrails, **g c** Costs, ...). In a trace, **j** / **k** move between spans, **[** / **]** open the previous or next trace, **c** opens Compare, and **Esc** returns to the list.
 - **Live** shows whether the server-sent event stream is connected; the dashboard refreshes shortly after new spans arrive.
 - The address bar always points at what you are looking at (`/?page=costs`, `/?trace=<id>`), so you can share a link.
 
@@ -162,6 +162,21 @@ Answers: *which document or memory record influenced this answer?*
 
 - Tabs for RAG retrievals (query, store, chunks, used in the answer), memory operations (key, type, value preview, redaction), and versioned memory records
 - Click any row for its full record and a link to its trace
+
+### Guardrails
+
+Answers: *what did my policies stop, and how do I stop an agent right now?*
+
+![Guardrails](../dashboard/screenshots/guardrails.png)
+
+- **Stop agents** halts a service, an agent, a trace, or everything; active halts show in a red banner with **Release**, and as a badge in the sidebar
+- Counts for the last 24 hours: calls blocked, sent for approval, and that monitor-mode policies would have blocked
+- **Policies** with their status (enforcing, monitoring, off) and checks; the menu edits, simulates, switches between enforce and monitor, turns a policy off, or deletes it
+- **New policy** opens a YAML editor with templates (loops and runaway spend, production safety, approved models), **Validate**, and **Simulate on recent traces**, which shows the traces and rules the policy would have hit
+- **Decisions**: every blocked, paused, approved, rejected, warned, or would-block call with its rule, reason, agent, and trace; filter by outcome and click a row to open the trace
+- **Halt history**
+
+A trace stopped by a policy shows a callout above its stats listing each stopped call and the rule that stopped it. See [guardrails.md](guardrails.md).
 
 ### Approvals
 
