@@ -73,7 +73,7 @@ pip install "agentmesh-ai[otlp]"
 agentmesh dashboard            # http://127.0.0.1:8787 — OTLP endpoint at /v1/traces
 ```
 
-> Until v0.4.0 is published to PyPI, install from a clone instead: `pip install -e ".[otlp]"` (see [Quickstart from source](#quickstart-from-source)). From v0.4.0 the PyPI wheel includes the full React dashboard.
+> The PyPI package includes the full React dashboard. Add `[postgres]` for PostgreSQL storage. To run unreleased changes from GitHub, see [Quickstart from source](#quickstart-from-source).
 
 **Option A — any OpenTelemetry-instrumented framework:**
 
