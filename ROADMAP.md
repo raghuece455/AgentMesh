@@ -23,6 +23,7 @@ This roadmap reflects the current plan. Community feedback shapes priorities —
 
 ## Next: v0.5 — Scale and depth
 
+- **Guardrails** *(in progress)* — policies that deny, pause for approval, or limit tool calls, LLM calls, and agents before they run; loop, spend, depth, and fan-out limits; monitor mode and simulation on recorded traces; a kill switch. Python SDK, OpenAI/Anthropic instrumentation, and the runtime first; TypeScript SDK enforcement next.
 - **OTLP logs** — ingest GenAI content events sent as OTel log records (e.g. Claude Code telemetry).
 - **gRPC OTLP receiver** — accept the Collector's default protocol without a relay.
 - **ClickHouse backend** — for very high span volumes and long retention.

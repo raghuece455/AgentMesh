@@ -70,6 +70,17 @@ async function main() {
     await waitFor(client, 'Agent tool loops')
     await waitFor(client, 'Recent notifications')
     await shot(client, 'alerts.png')
+    // An active halt for the Guardrails screenshot, released again afterwards.
+    const halt = await client.send('Runtime.evaluate', {
+      expression: `fetch('/api/halts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'agent', value: 'research_swarm', reason: 'Fan-out spiked to 40 sub-agents in two minutes' }) }).then(response => response.json()).then(item => item.halt_id)`,
+      awaitPromise: true,
+      returnByValue: true,
+    })
+    await click(client, 'Guardrails')
+    await waitFor(client, 'production-safety')
+    await waitFor(client, 'Agents are stopped')
+    await shot(client, 'guardrails.png')
+    await client.send('Runtime.evaluate', { expression: `fetch('/api/halts/${halt.result.result.value}/release', { method: 'POST' })`, awaitPromise: true })
     client.close()
     console.log(`Screenshots written to ${outDir}`)
   }

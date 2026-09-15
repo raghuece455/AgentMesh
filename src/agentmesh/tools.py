@@ -132,6 +132,11 @@ class ToolRegistry:
     async def execute(self, name: str, arguments: JsonObject, context: ToolContext) -> JsonValue:
         item = self.get(name)
         definition = item.definition
+        from agentmesh.runtime_guardrails import check_runtime_action
+
+        await check_runtime_action(
+            context, kind="tool", name=name, agent=context.agent_name, parent_span_id=context.parent_span_id, arguments=arguments
+        )
         if definition.permission not in context.permissions:
             raise PermissionDenied(
                 f"Tool '{name}' requires permission '{definition.permission.value}'",

@@ -33,6 +33,10 @@ jobs:
         run: AGENTMESH_DB_URL=.agentmesh/sdk-example.db python examples/sdk_quickstart.py
       - name: Datasets and experiments example
         run: python examples/datasets_experiments.py
+      - name: Guardrails example
+        run: |
+          python examples/guardrails.py
+          python -m agentmesh.cli policy validate examples/policies/production-safety.yaml
 
   postgres:
     runs-on: ubuntu-latest
@@ -169,5 +173,10 @@ jobs:
           curl -sf http://127.0.0.1:8795/api/experiments > /dev/null
           curl -sf http://127.0.0.1:8795/api/alerts/rules > /dev/null
           curl -sf http://127.0.0.1:8795/api/alerts/events > /dev/null
+          curl -sf http://127.0.0.1:8795/api/policies > /dev/null
+          curl -sf http://127.0.0.1:8795/api/policy-decisions > /dev/null
+          curl -sf http://127.0.0.1:8795/api/guardrails/summary > /dev/null
+          curl -sf http://127.0.0.1:8795/api/guardrails/runtime > /dev/null
+          curl -sf http://127.0.0.1:8795/api/halts > /dev/null
           curl -sf -X POST -H "Content-Type: application/json" -d '{"resourceSpans": []}' http://127.0.0.1:8795/v1/traces > /dev/null
           echo "All dashboard endpoints OK"

@@ -118,6 +118,30 @@ See [alerts.md](alerts.md).
 
 ---
 
+## Guardrails
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/policies` | Policies with mode, enabled, spec, rule count, limits, and saved source text |
+| `POST` | `/api/policies` | Create: `{"text": "<yaml or json>", "enabled"?}` or `{"spec": {...}}`. Invalid policies return `422` with every error |
+| `GET` | `/api/policies/{policy_id_or_name}` | One policy |
+| `PATCH` | `/api/policies/{policy_id_or_name}` | Update `text`, `spec`, `mode`, or `enabled` |
+| `DELETE` | `/api/policies/{policy_id_or_name}` | Delete a policy |
+| `POST` | `/api/policies/validate` | `{"text"}` returns `{"valid", "errors", "policy"}` |
+| `POST` | `/api/policies/simulate` | Replay recent traces through a draft (`text`/`spec`) or saved (`policy`) policy. Optional `limit`, `hours` |
+| `GET` | `/api/policy-decisions` | Decisions. Query params: `action` (`blocked`, `would_block`, `require_approval`, `warn`, `allow`, `deny`), `trace_id`, `hours`, `limit` |
+| `GET` | `/api/guardrails/summary` | Policy counts, active halts, and decision counts. Query param: `hours` (default 24) |
+| `GET` | `/api/guardrails/runtime` | Enabled policy specs and active halts, polled by SDKs |
+| `GET` | `/api/halts` | Active halts; `?active=false` includes released ones |
+| `POST` | `/api/halts` | Create: `{"scope": "all", "service", "agent", or "trace", "value"?, "reason"?}` (audited) |
+| `POST` | `/api/halts/{halt_id}/release` | Lift a halt (audited) |
+| `POST` | `/api/approvals` | Request an approval: `{"tool", "agent"?, "trace_id"?, "arguments"?}` (used by SDKs) |
+| `GET` | `/api/approvals/{approval_id}` | One approval with its status |
+
+See [guardrails.md](guardrails.md).
+
+---
+
 ## Pricing
 
 | Method | Path | Description |

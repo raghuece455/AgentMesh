@@ -4,11 +4,21 @@ from agentmesh.costs import CostTracker
 from agentmesh.debug import FailedRunDiagnosis, ReplayEngine, TimeTravelDebugger
 from agentmesh.evaluation import ContainsEvaluator, RunComparator
 from agentmesh.event_bus import AsyncEventBus, EventEnvelope
-from agentmesh.errors import AgentMeshError, BudgetExceeded, ErrorKind, PermissionDenied, WorkflowCancelled
+from agentmesh.errors import (
+    AgentHalted,
+    AgentMeshError,
+    ApprovalDenied,
+    BudgetExceeded,
+    ErrorKind,
+    PermissionDenied,
+    PolicyViolation,
+    WorkflowCancelled,
+)
 from agentmesh.memory import SQLiteMemoryStore, WorkflowMemory
 from agentmesh.messages import AgentMessage, MessageType
 from agentmesh.planning import PlannedStep, Planner, StaticPlanner
 from agentmesh.plugins import AgentMeshPlugin, PluginManager
+from agentmesh.policy import Policy, PolicyError
 from agentmesh.postgres import PostgreSQLStore
 from agentmesh.providers import (
     MockModelProvider,
@@ -100,6 +110,12 @@ __all__ = [
     "evaluate_traces",
     "evaluator",
     "run_experiment",
+    # Guardrails
+    "AgentHalted",
+    "ApprovalDenied",
+    "Policy",
+    "PolicyError",
+    "PolicyViolation",
     # Runtime
     "Agent",
     "AgentMessage",

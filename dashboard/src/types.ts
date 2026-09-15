@@ -158,6 +158,7 @@ export interface TraceDetail {
   checkpoints: Checkpoint[]
   costs: CostSummary
   diagnosis: Diagnosis
+  policy_decisions?: PolicyDecision[]
 }
 
 export interface CostSummary {
@@ -657,4 +658,83 @@ export interface ReplayRun {
   completed_at?: string | null
   result: unknown
   metadata?: unknown
+}
+
+export type PolicyAction = 'allow' | 'warn' | 'require_approval' | 'deny'
+
+export interface PolicyRecord {
+  policy_id: string
+  name: string
+  description?: string | null
+  mode: 'enforce' | 'monitor'
+  enabled: boolean
+  spec: JsonRecord
+  rule_count: number
+  limits: Record<string, number>
+  source_text?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PolicyDecision {
+  decision_id: string
+  trace_id: string | null
+  span_id: string | null
+  policy_id: string | null
+  policy_name: string | null
+  rule: string
+  action: PolicyAction
+  enforced: boolean
+  kind: string
+  target: string
+  agent: string | null
+  service: string | null
+  reason: string
+  details: JsonRecord
+  created_at: string
+}
+
+export interface HaltRecord {
+  halt_id: string
+  scope: 'all' | 'trace' | 'agent' | 'service'
+  value: string | null
+  reason: string | null
+  created_by: string | null
+  created_at: string
+  released_at: string | null
+  released_by: string | null
+  active: boolean
+}
+
+export interface GuardrailsSummary {
+  policies: number
+  enabled_policies: number
+  enforcing_policies: number
+  active_halts: number
+  decisions: { blocked: number; approvals: number; would_block: number; warnings: number; total: number }
+  hours: number
+}
+
+export interface PolicyValidation {
+  valid: boolean
+  errors: string[]
+  policy?: JsonRecord
+}
+
+export interface PolicySimulation {
+  traces_evaluated: number
+  actions_evaluated: number
+  traces_affected: number
+  blocked_calls: number
+  approval_calls: number
+  rules: Array<{ policy: string; rule: string; action: PolicyAction; calls: number; traces: number }>
+  traces: Array<{
+    trace_id: string
+    name: string | null
+    status: string | null
+    started_at: string | null
+    blocked_calls: number
+    approval_calls: number
+    first: { span_id: string | null; rule: string; action: PolicyAction; reason: string; target: string; kind: string }
+  }>
 }

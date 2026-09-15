@@ -58,6 +58,7 @@ class TraceService:
             "diagnosis": diagnosis,
             "scores": self.store.list_scores(trace_id=trace_id) if hasattr(self.store, "list_scores") else [],
             "insights": trace_insights(self.store, trace_id) if trace is not None else None,
+            "policy_decisions": self.store.list_policy_decisions(limit=200, trace_id=trace_id) if hasattr(self.store, "list_policy_decisions") else [],
         }
 
     def spans(self, trace_id: str) -> list[JsonObject]:

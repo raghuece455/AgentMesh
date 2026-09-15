@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, GitCompare, ListTree, MessagesSquare, MoreHorizontal, RotateCcw, ScrollText, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, GitCompare, ListTree, MessagesSquare, MoreHorizontal, OctagonX, RotateCcw, ScrollText, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { AddToDataset } from '../components/trace/AddToDataset'
 import { InsightsCard } from '../components/trace/InsightsCard'
@@ -14,7 +14,7 @@ import { Menu } from '../components/ui/Overlay'
 import { StatStrip } from '../components/ui/Stat'
 import { Tabs } from '../components/ui/Tabs'
 import { useShortcuts } from '../lib/shortcuts'
-import type { SpanRecord, TraceDetail, TraceSummary } from '../types'
+import type { PolicyDecision, SpanRecord, TraceDetail, TraceSummary } from '../types'
 import { formatDateTime, formatMoney, formatMs, formatNumber, numeric } from '../utils/format'
 import { flattenSpans, spanKind } from '../utils/traces'
 
@@ -160,6 +160,8 @@ export function TraceView({
         <Callout tone="danger" title={trace.error_type ?? 'Trace failed'}>{trace.error_message}</Callout>
       )}
 
+      <PolicyCallout decisions={detail?.policy_decisions ?? []} spans={spans} onSelectSpan={onSelectSpan} />
+
       <StatStrip items={[
         { label: 'Duration', value: formatMs(trace.duration_ms ?? trace.max_latency_ms) },
         { label: 'Spans', value: formatNumber(trace.span_count ?? spans.length) },
@@ -217,5 +219,34 @@ export function TraceView({
         </div>
       </div>
     </>
+  )
+}
+
+/** Calls that guardrails stopped (or, in monitor mode, would have stopped) in this trace. */
+function PolicyCallout({ decisions, spans, onSelectSpan }: { decisions: PolicyDecision[]; spans: SpanRecord[]; onSelectSpan: (span: SpanRecord) => void }) {
+  const stopped = decisions.filter(item => item.enforced && item.action === 'deny')
+  const wouldStop = decisions.filter(item => !item.enforced && (item.action === 'deny' || item.action === 'require_approval'))
+  const shown = stopped.length ? stopped : wouldStop
+  if (!shown.length)
+    return null
+  const title = stopped.length
+    ? `Guardrails stopped ${stopped.length === 1 ? 'a call' : `${stopped.length} calls`} in this trace`
+    : `${wouldStop.length === 1 ? 'A call' : `${wouldStop.length} calls`} would have been stopped (monitor mode)`
+  return (
+    <Callout tone={stopped.length ? 'danger' : 'warning'} icon={stopped.length ? <OctagonX /> : <Eye />} title={title}>
+      <ul className="mt-1 flex flex-col gap-0.5">
+        {shown.slice(0, 4).map((item) => {
+          const span = spans.find(candidate => candidate.span_id === item.span_id)
+          return (
+            <li key={item.decision_id} className="flex min-w-0 items-baseline gap-2">
+              <button className="shrink-0 font-mono text-xs text-fg hover:underline disabled:no-underline" disabled={!span} onClick={() => span && onSelectSpan(span)}>{item.target}</button>
+              <span className="min-w-0 truncate" title={item.reason}>{item.reason}</span>
+              <span className="shrink-0 font-mono text-[11px] text-fg-subtle">{item.rule === 'halt' ? 'halt' : `${item.policy_name ?? ''} · ${item.rule}`}</span>
+            </li>
+          )
+        })}
+        {shown.length > 4 && <li className="text-xs text-fg-subtle">and {shown.length - 4} more on the Guardrails page</li>}
+      </ul>
+    </Callout>
   )
 }

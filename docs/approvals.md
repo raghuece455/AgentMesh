@@ -15,6 +15,8 @@ AgentMesh lets you pause workflow execution before a sensitive tool runs and req
 
 Every decision is persisted and audited — you can see who approved what and when.
 
+Approvals are not limited to the runtime: a [guardrail policy](guardrails.md) with `action: require_approval` pauses tool and LLM calls from the Python SDK and OpenAI/Anthropic instrumentation the same way, and those requests appear in the same queue.
+
 ---
 
 ## Marking a Tool as Requiring Approval

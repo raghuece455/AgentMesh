@@ -251,6 +251,9 @@ class SQLiteStore:
         from agentmesh.observability import install_schema
 
         tables = [
+            "policy_decisions",
+            "policy_halts",
+            "policies",
             "experiment_results",
             "experiments",
             "dataset_items",
@@ -1252,6 +1255,91 @@ class SQLiteStore:
             return {"delivered": False, "error": "rule has no webhook url"}
         error = alerts.deliver(alerts.test_payload(rule))
         return {"delivered": error is None, "error": error}
+
+    # -- policies, decisions, and halts -------------------------------------------------
+
+    def create_policy(self, payload: JsonObject) -> JsonObject:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.create_policy, payload)  # type: ignore[return-value]
+
+    def update_policy(self, ref: str, payload: JsonObject) -> JsonObject | None:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.update_policy, ref, payload)  # type: ignore[return-value]
+
+    def delete_policy(self, ref: str) -> bool:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.delete_policy, ref)  # type: ignore[return-value]
+
+    def get_policy(self, ref: str) -> JsonObject | None:
+        from agentmesh import policy_store
+
+        return self._read(policy_store.get_policy, ref)  # type: ignore[return-value]
+
+    def list_policies(self) -> list[JsonObject]:
+        from agentmesh import policy_store
+
+        return self._read(policy_store.list_policies)  # type: ignore[return-value]
+
+    def policy_runtime_config(self) -> JsonObject:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.runtime_config)  # type: ignore[return-value]
+
+    def save_policy_decisions(self, decisions: list[JsonObject]) -> None:
+        from agentmesh import policy_store
+
+        def save_all(conn: object) -> None:
+            for decision in decisions:
+                policy_store.save_decision(conn, decision)  # type: ignore[arg-type]
+
+        self._write(save_all)
+
+    def list_policy_decisions(self, limit: int = 100, trace_id: str | None = None, action: str | None = None, since: str | None = None) -> list[JsonObject]:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.list_decisions, limit, trace_id, action, since)  # type: ignore[return-value]
+
+    def policy_decision_summary(self, since: str) -> JsonObject:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.decision_summary, since)  # type: ignore[return-value]
+
+    def create_halt(self, payload: JsonObject) -> JsonObject:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.create_halt, payload)  # type: ignore[return-value]
+
+    def release_halt(self, halt_id: str, released_by: str | None = None) -> JsonObject | None:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.release_halt, halt_id, released_by)  # type: ignore[return-value]
+
+    def list_halts(self, active_only: bool = True, limit: int = 100) -> list[JsonObject]:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.list_halts, active_only, limit)  # type: ignore[return-value]
+
+    def get_approval(self, approval_id: str) -> JsonObject | None:
+        from agentmesh import policy_store
+
+        return self._write(policy_store.get_approval, approval_id)  # type: ignore[return-value]
+
+    def simulate_policy(self, policies: list[object], limit: int = 200, since: str | None = None) -> JsonObject:
+        """Replay the most recent recorded traces through ``policies`` as if they were enforced."""
+        from agentmesh.observability import list_traces
+        from agentmesh.policy import simulate
+
+        with self._lock:
+            filters: JsonObject = {"started_after": since} if since else {}
+            traces = list_traces(self._conn, max(min(int(limit), 1000), 1), filters)
+            self._conn.commit()
+        loaded = []
+        for trace in traces:
+            loaded.append((trace, self.list_spans(str(trace["trace_id"]))))
+        return simulate(policies, loaded)  # type: ignore[arg-type]
 
     def create_replay(self, trace_id: str, span_id: str | None, mode: str, result: JsonObject) -> JsonObject:
         from agentmesh.observability import create_replay

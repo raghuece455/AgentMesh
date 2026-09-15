@@ -14,6 +14,8 @@ import type {
   ExperimentDetail,
   ExperimentSummary,
   EvaluationSummary,
+  GuardrailsSummary,
+  HaltRecord,
   IntegrationInfo,
   JsonRecord,
   SessionDetail,
@@ -23,6 +25,10 @@ import type {
   ModelCallRecord,
   ModelUsage,
   OverviewData,
+  PolicyDecision,
+  PolicyRecord,
+  PolicySimulation,
+  PolicyValidation,
   PromptSummary,
   PromptVersion,
   ProviderHealth,
@@ -318,6 +324,57 @@ export function compareExperiments(base: string, candidate: string): Promise<Exp
 
 export function deleteExperiment(experimentId: string): Promise<JsonRecord> {
   return sendJson<JsonRecord>('DELETE', `/api/experiments/${encodeURIComponent(experimentId)}`)
+}
+
+export function getGuardrailsSummary(hours = 24): Promise<GuardrailsSummary> {
+  return getJson<GuardrailsSummary>(`/api/guardrails/summary?hours=${hours}`)
+}
+
+export function listPolicies(): Promise<PolicyRecord[]> {
+  return getJson<PolicyRecord[]>('/api/policies')
+}
+
+export function createPolicy(text: string, enabled = true): Promise<PolicyRecord> {
+  return postJson<PolicyRecord>('/api/policies', { text, enabled })
+}
+
+export function updatePolicy(policy: string, payload: JsonRecord): Promise<PolicyRecord> {
+  return sendJson<PolicyRecord>('PATCH', `/api/policies/${encodeURIComponent(policy)}`, payload)
+}
+
+export function deletePolicy(policy: string): Promise<JsonRecord> {
+  return sendJson<JsonRecord>('DELETE', `/api/policies/${encodeURIComponent(policy)}`)
+}
+
+export function validatePolicy(text: string): Promise<PolicyValidation> {
+  return postJson<PolicyValidation>('/api/policies/validate', { text })
+}
+
+/** Replay recent traces through a draft (`text`) or saved (`policy`) policy. */
+export function simulatePolicy(payload: { text?: string; policy?: string; limit?: number; hours?: number }): Promise<PolicySimulation> {
+  return postJson<PolicySimulation>('/api/policies/simulate', payload)
+}
+
+export function listPolicyDecisions(filters: { action?: string; trace_id?: string; limit?: number; hours?: number } = {}): Promise<PolicyDecision[]> {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '')
+      params.set(key, String(value))
+  }
+  const query = params.toString()
+  return getJson<PolicyDecision[]>(`/api/policy-decisions${query ? `?${query}` : ''}`)
+}
+
+export function listHalts(active = true): Promise<HaltRecord[]> {
+  return getJson<HaltRecord[]>(`/api/halts?active=${active}`)
+}
+
+export function createHalt(payload: { scope: HaltRecord['scope']; value?: string; reason?: string }): Promise<HaltRecord> {
+  return postJson<HaltRecord>('/api/halts', payload)
+}
+
+export function releaseHalt(haltId: string): Promise<HaltRecord> {
+  return postJson<HaltRecord>(`/api/halts/${encodeURIComponent(haltId)}/release`)
 }
 
 export function listAlertRules(): Promise<AlertRule[]> {

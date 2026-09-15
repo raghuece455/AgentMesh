@@ -160,6 +160,8 @@ def dashboard_dist_dir() -> Path | None:
 
 
 def create_app(db_path: str | Path | None = None):
+    from datetime import UTC, datetime, timedelta
+
     from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Response, WebSocketDisconnect
     from fastapi.responses import HTMLResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
@@ -175,6 +177,8 @@ def create_app(db_path: str | Path | None = None):
         max_request_bytes,
         protobuf_available,
     )
+    from agentmesh.policy import Policy, PolicyError, parse_spec
+    from agentmesh.policy_store import validate_policy
     from agentmesh.pricing import list_pricing_rules, pricing_for
 
     settings = AgentMeshSettings.from_env()
@@ -577,6 +581,142 @@ def create_app(db_path: str | Path | None = None):
     @app.get("/api/alerts/events", dependencies=[Depends(require_auth)])
     def alert_events(limit: int = Query(100, ge=1, le=1000), rule: str | None = None) -> list[dict[str, object]]:
         return store.list_alert_events(limit=limit, rule=rule)
+
+    # -- guardrails: policies, decisions, halts ------------------------------------------
+
+    def invalid_policy(exc: PolicyError) -> HTTPException:
+        return HTTPException(status_code=422, detail={"error": "invalid_policy", "message": str(exc), "errors": exc.errors})
+
+    @app.get("/api/guardrails/runtime", dependencies=[Depends(require_auth)])
+    def guardrails_runtime() -> dict[str, object]:
+        """Enabled policies and active halts, polled by SDKs to enforce guardrails."""
+        return store.policy_runtime_config()
+
+    @app.get("/api/guardrails/summary", dependencies=[Depends(require_auth)])
+    def guardrails_summary(hours: int = Query(24, ge=1, le=24 * 90)) -> dict[str, object]:
+        since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+        policies = store.list_policies()
+        return {
+            "policies": len(policies),
+            "enabled_policies": sum(1 for policy in policies if policy["enabled"]),
+            "enforcing_policies": sum(1 for policy in policies if policy["enabled"] and policy["mode"] == "enforce"),
+            "active_halts": len(store.list_halts(active_only=True)),
+            "decisions": store.policy_decision_summary(since),
+            "hours": hours,
+        }
+
+    @app.get("/api/policies", dependencies=[Depends(require_auth)])
+    def policies() -> list[dict[str, object]]:
+        return store.list_policies()
+
+    @app.post("/api/policies", dependencies=[Depends(require_auth)], status_code=201)
+    def create_policy(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+        try:
+            return store.create_policy(payload)
+        except PolicyError as exc:
+            raise invalid_policy(exc) from exc
+
+    @app.post("/api/policies/validate", dependencies=[Depends(require_auth)])
+    def validate_policy_document(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+        return validate_policy(payload)
+
+    @app.post("/api/policies/simulate", dependencies=[Depends(require_auth)])
+    async def simulate_policies(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+        """What a policy would have blocked on recent traces. Send a draft (``text``/``spec``) or a saved ``policy``."""
+        try:
+            limit = int(payload.get("limit") or 200)  # type: ignore[arg-type]
+            hours = float(payload["hours"]) if payload.get("hours") else None  # type: ignore[arg-type]
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail={"error": "invalid_request", "message": "limit and hours must be numbers"}) from exc
+        ref = payload.get("policy")
+        try:
+            if isinstance(ref, str):
+                saved = store.get_policy(ref)
+                if saved is None:
+                    raise not_found("policy", ref)
+                drafts = [Policy.from_spec(saved["spec"], policy_id=saved["policy_id"])]
+            else:
+                drafts = [Policy.from_spec(parse_spec(payload["text"]) if isinstance(payload.get("text"), str) else payload.get("spec") or {})]
+        except PolicyError as exc:
+            raise invalid_policy(exc) from exc
+        since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat() if hours and hours > 0 else None
+        return await asyncio.to_thread(store.simulate_policy, drafts, limit, since)
+
+    @app.get("/api/policies/{policy}", dependencies=[Depends(require_auth)])
+    def get_policy(policy: str) -> dict[str, object]:
+        item = store.get_policy(policy)
+        if item is None:
+            raise not_found("policy", policy)
+        return item
+
+    @app.patch("/api/policies/{policy}", dependencies=[Depends(require_auth)])
+    def update_policy(policy: str, payload: dict[str, object] = Body(...)) -> dict[str, object]:
+        try:
+            item = store.update_policy(policy, payload)
+        except PolicyError as exc:
+            raise invalid_policy(exc) from exc
+        if item is None:
+            raise not_found("policy", policy)
+        return item
+
+    @app.delete("/api/policies/{policy}", dependencies=[Depends(require_auth)])
+    def delete_policy(policy: str) -> dict[str, object]:
+        if not store.delete_policy(policy):
+            raise not_found("policy", policy)
+        return {"deleted": True}
+
+    @app.get("/api/policy-decisions", dependencies=[Depends(require_auth)])
+    def policy_decisions(
+        limit: int = Query(100, ge=1, le=1000),
+        trace_id: str | None = None,
+        action: str | None = Query(None, pattern="^(blocked|would_block|allow|warn|require_approval|deny)$"),
+        hours: int | None = Query(None, ge=1),
+    ) -> list[dict[str, object]]:
+        since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat() if hours else None
+        return store.list_policy_decisions(limit=limit, trace_id=trace_id, action=action, since=since)
+
+    @app.get("/api/halts", dependencies=[Depends(require_auth)])
+    def halts(active: bool = True, limit: int = Query(100, ge=1, le=1000)) -> list[dict[str, object]]:
+        return store.list_halts(active_only=active, limit=limit)
+
+    @app.post("/api/halts", dependencies=[Depends(require_auth)], status_code=201)
+    def create_halt(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+        try:
+            halt = store.create_halt({**payload, "created_by": payload.get("created_by") or "dashboard"})
+        except PolicyError as exc:
+            raise invalid_policy(exc) from exc
+        store.audit(None, "dashboard", "guardrails.halt", str(halt["scope"]), {"halt": halt})
+        return halt
+
+    @app.post("/api/halts/{halt_id}/release", dependencies=[Depends(require_auth)])
+    def release_halt(halt_id: str) -> dict[str, object]:
+        halt = store.release_halt(halt_id, "dashboard")
+        if halt is None:
+            raise not_found("halt", halt_id)
+        store.audit(None, "dashboard", "guardrails.release", str(halt["scope"]), {"halt": halt})
+        return halt
+
+    @app.post("/api/approvals", dependencies=[Depends(require_auth)], status_code=201)
+    def request_approval(payload: dict[str, object] = Body(...)) -> dict[str, object]:
+        """Create a pending approval. SDK guardrails call this and wait for a reviewer."""
+        tool_name = payload.get("tool")
+        if not isinstance(tool_name, str) or not tool_name:
+            raise HTTPException(status_code=422, detail={"error": "invalid_request", "message": "tool is required"})
+        arguments = payload.get("arguments")
+        approval_id = store.create_approval(
+            payload.get("trace_id") if isinstance(payload.get("trace_id"), str) else None,
+            str(payload.get("agent") or tool_name),
+            tool_name,
+            arguments if isinstance(arguments, dict) else {"input": arguments},
+        )
+        return store.get_approval(approval_id) or {"approval_id": approval_id}
+
+    @app.get("/api/approvals/{approval_id}", dependencies=[Depends(require_auth)])
+    def get_approval(approval_id: str) -> dict[str, object]:
+        approval = store.get_approval(approval_id)
+        if approval is None:
+            raise not_found("approval", approval_id)
+        return approval
 
     @app.get("/api/pricing", dependencies=[Depends(require_auth)])
     def pricing(model: str | None = None, provider: str | None = None) -> dict[str, object]:

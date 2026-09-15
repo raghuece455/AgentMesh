@@ -1,8 +1,8 @@
 # Python tracing SDK
 
 Trace any Python agent code with a decorator and two context managers. The SDK has no
-dependencies beyond AgentMesh itself and never raises into your application: export errors are
-logged and dropped.
+dependencies beyond AgentMesh itself. Export errors are logged and dropped; the only exceptions it
+raises into your application are [guardrail](guardrails.md) blocks from policies you save.
 
 ```python
 import agentmesh
@@ -45,6 +45,8 @@ Then open the dashboard (`agentmesh dashboard`) or ask your coding agent through
 | `enabled` | `AGENTMESH_TRACING_ENABLED` | `true` | `false` turns every span into a no-op |
 | `capture_content` | `AGENTMESH_CAPTURE_CONTENT` | `true` | `false` never records inputs, outputs, prompts or completions |
 | `exporter` | | | Custom `SpanExporter`, e.g. `InMemoryExporter()` in tests |
+| `policies` | `AGENTMESH_POLICY_FILE` | none | Guardrail policies to enforce on top of saved ones: dicts, YAML/JSON text, file paths, or `Policy` objects. See [guardrails.md](guardrails.md) |
+| `guardrails` | `AGENTMESH_GUARDRAILS` | `true` | `false` turns off policy enforcement and halts in this process |
 
 Calling `init()` is optional: the first span initializes the SDK from environment variables.
 
@@ -141,6 +143,17 @@ messages, output messages and tool calls, finish reasons, and usage including ca
 tokens. Streaming responses are wrapped transparently; the span ends when the stream is exhausted or
 closed. Sync and async clients are both supported. `uninstrument_openai()` /
 `uninstrument_anthropic()` undo global patching.
+
+---
+
+## Guardrails
+
+Tool, LLM, and agent spans are checked against guardrail policies and halts before they run. A
+blocked call raises `agentmesh.PolicyViolation` (or `AgentHalted` / `ApprovalDenied`) from the
+decorated function, the `with` block, or the instrumented client call, before the model request is
+sent. Spans you create without entering them can be checked with `span.enforce()` (or
+`await span.aenforce()`). Nothing is enforced until a policy or halt exists. See
+[guardrails.md](guardrails.md).
 
 ---
 

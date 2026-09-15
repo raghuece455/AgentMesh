@@ -81,6 +81,19 @@ See [alerts.md](alerts.md).
 
 ---
 
+## Guardrails
+
+| Variable | Default | Description |
+|---|---|---|
+| `AGENTMESH_GUARDRAILS` | `true` | Enforce guardrail policies and halts in this process |
+| `AGENTMESH_POLICY_FILE` | _(unset)_ | Policy files to enforce in addition to saved policies, separated by `;` (Windows) or `:` |
+| `AGENTMESH_GUARDRAILS_REFRESH_SECONDS` | `5` | How often policies and halts are reloaded from the database or server |
+| `AGENTMESH_GUARDRAILS_FAIL_CLOSED` | `false` | Deny every call while no policies could be loaded |
+
+See [guardrails.md](guardrails.md).
+
+---
+
 ## Observability
 
 | Variable | Default | Description |
