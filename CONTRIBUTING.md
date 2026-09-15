@@ -105,6 +105,14 @@ No issue numbers required in commit messages (link them in the PR description in
 
 PRs are reviewed within a few days. Small, focused PRs merge faster.
 
+## Releasing (maintainers)
+
+1. Bump the Python version in `pyproject.toml` and `src/agentmesh/__init__.py`, and update `CHANGELOG.md`.
+2. If the TypeScript SDK changed, bump `sdks/typescript/package.json` and `sdks/typescript/src/version.ts` to the same version as the tag.
+3. Merge to `main`, then push a tag: `git tag v0.4.1 && git push origin v0.4.1`.
+
+The Release workflow publishes `agentmesh-ai` to PyPI and `agentmesh-sdk` to npm with trusted publishing (no tokens). The npm job skips when that SDK version is already on npm, so Python-only releases don't need an SDK bump, and it fails if the tag doesn't match an unpublished SDK version.
+
 ## Adding a Model Provider
 
 1. Add a class in `src/agentmesh/providers.py` that implements the `ModelProvider` protocol.
