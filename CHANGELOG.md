@@ -10,6 +10,17 @@ Nothing yet.
 
 ---
 
+## [0.4.1] — 2026-09-15
+
+A packaging and release-process update. No changes to the Python package or TypeScript SDK code.
+
+### Changed
+- The PyPI project page no longer says to install from a clone until 0.4.0 is published, and mentions the `postgres` extra.
+- The Release workflow now also publishes `agentmesh-sdk` to npm with trusted publishing (OIDC, no stored token, with provenance). It skips when the SDK version is already on npm and fails when the tag and SDK version disagree. `CONTRIBUTING.md` documents the release steps.
+- `agentmesh-sdk` 0.4.1 is the first npm release published by the workflow; the dashboard and SDK versions follow the Python package.
+
+---
+
 ## [0.4.0] — 2026-09-14
 
 AgentMesh becomes framework-agnostic: observe agents built with anything, not only the AgentMesh runtime, test changes with datasets and experiments, get alerted, and run on PostgreSQL.
