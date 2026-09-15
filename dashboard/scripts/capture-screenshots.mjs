@@ -9,6 +9,7 @@ const chromePath = process.env.CHROME_PATH ?? findChrome()
 const outDir = resolve(process.env.AGENTMESH_SCREENSHOT_DIR ?? 'screenshots')
 const debugPort = Number(process.env.AGENTMESH_SCREENSHOT_DEBUG_PORT ?? String(9700 + Math.floor(Math.random() * 300)))
 const profileDir = join(tmpdir(), `agentmesh-dashboard-shots-${Date.now()}`)
+const theme = process.env.AGENTMESH_SCREENSHOT_THEME ?? 'dark'
 
 async function main() {
   if (!chromePath) {
@@ -17,39 +18,43 @@ async function main() {
   }
 
   mkdirSync(outDir, { recursive: true })
-  const chrome = spawn(chromePath, [`--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, '--headless=new', '--disable-gpu', '--no-first-run', '--window-size=1600,1100', baseUrl], { stdio: ['ignore', 'ignore', 'ignore'] })
+  const chrome = spawn(chromePath, [`--remote-debugging-port=${debugPort}`, `--user-data-dir=${profileDir}`, '--headless=new', '--disable-gpu', '--no-first-run', '--hide-scrollbars', '--window-size=1600,1100', baseUrl], { stdio: ['ignore', 'ignore', 'ignore'] })
 
   try {
     const client = await connect(debugPort)
     await client.send('Page.enable')
     await client.send('Runtime.enable')
-    await client.send('Page.navigate', { url: baseUrl })
-    await waitFor(client, 'Recent Traces')
+    // A fixed 1600x1000 viewport, so every screenshot has the same size regardless of window chrome.
+    await client.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 1000, deviceScaleFactor: 1, mobile: false })
+    // Screenshots use the dark theme; ?theme= applies it without touching the browser's saved choice.
+    await client.send('Page.navigate', { url: `${baseUrl}/?theme=${theme}` })
+    await waitFor(client, 'Trace volume')
     await waitFor(client, 'replay-regression-demo')
     await shot(client, 'overview-trace-launchpad.png')
-    await clickNear(client, 'Open', 'research-writer-reviewer')
-    await waitFor(client, 'Span Tree')
-    await waitFor(client, 'Waterfall Timeline')
-    await waitFor(client, 'Export OTEL JSON')
+    await click(client, 'Traces')
+    await waitFor(client, 'More filters')
+    await clickRow(client, 'research-writer-reviewer')
+    await waitFor(client, 'Timeline')
+    await waitFor(client, 'model.response')
     await shot(client, 'trace-detail-cockpit.png')
     await click(client, 'Sessions')
     await waitFor(client, 'demo-chat-1001')
     await waitFor(client, 'Turn 3')
     await shot(client, 'sessions.png')
     await clickLast(client, 'Open trace')
-    await waitFor(client, 'Insights & Scores')
+    await waitFor(client, 'Insights')
     await waitFor(client, 'identical arguments')
     await shot(client, 'trace-insights.png')
     await click(client, 'Workflows')
-    await waitFor(client, 'Temporal Execution View')
+    await waitFor(client, 'Latest run')
     await shot(client, 'workflow-graph.png')
     await click(client, 'Costs')
-    await waitFor(client, 'Cost Confidence')
+    await waitFor(client, 'Monthly budget')
     await shot(client, 'cost-center.png')
     await click(client, 'Replay')
-    await waitFor(client, 'Replay Controls')
+    await waitFor(client, 'Replay a trace')
     await click(client, 'Replay full trace')
-    await waitFor(client, 'source_trace_id')
+    await waitFor(client, 'Replay result')
     await shot(client, 'replay-studio.png')
     await click(client, 'Connect')
     await waitFor(client, 'Connect your agents')
@@ -151,20 +156,10 @@ async function click(client, label) {
   await client.send('Runtime.evaluate', { expression: `[...document.querySelectorAll('button')].find(item => item.textContent.trim().startsWith(${JSON.stringify(label)}))?.click()` })
 }
 
-async function clickNear(client, label, text) {
-  // Click the first button labelled `label` whose surrounding card mentions `text`.
+async function clickRow(client, text) {
+  // Click the first table row that mentions `text`.
   await client.send('Runtime.evaluate', {
-    expression: `(() => {
-      for (const button of [...document.querySelectorAll('button')].filter(item => item.textContent.trim().startsWith(${JSON.stringify(label)}))) {
-        for (let node = button, depth = 0; node && depth < 6; node = node.parentElement, depth++) {
-          if (node.innerText && node.innerText.includes(${JSON.stringify(text)}) && node.innerText.length < 1500) {
-            button.click()
-            return true
-          }
-        }
-      }
-      return false
-    })()`,
+    expression: `[...document.querySelectorAll('tbody tr')].find(row => row.innerText.includes(${JSON.stringify(text)}))?.click()`,
   })
 }
 

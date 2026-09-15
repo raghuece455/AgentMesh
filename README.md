@@ -243,12 +243,12 @@ Replace `MockModelProvider` with `OpenAICompatibleProvider`, `AnthropicProvider`
 
 ## Dashboard
 
-The local dashboard is built around production debugging workflows:
+The local dashboard is built around production debugging workflows, with a command palette (Ctrl/⌘ K), a global time range, and light and dark themes:
 
 | Page | What you get |
 |---|---|
-| **Overview** | Runs, success/failure rate, latency, tokens, cost, provider health, budget usage, recent failures |
-| **Trace Explorer** | Searchable traces, nested span tree, waterfall timeline, automatic insights, scores and thumbs up/down feedback, span detail, raw JSON, export, replay |
+| **Overview** | KPI cards with sparklines (traces, error rate, p95 latency, tokens, cost), trace volume and latency charts, failures grouped into issues, spend by model, provider health |
+| **Traces** | Dense searchable table with shareable filters and CSV export; a trace view with the span tree and waterfall in one searchable timeline, automatic insights, a span panel with chat-style input/output, side-by-side comparison with another run, keyboard navigation, export, replay |
 | **Sessions** | Multi-turn conversations: every turn's input, output, status, cost, and feedback in order |
 | **Datasets & Evals** | Datasets built from traces or by hand, experiment runs with per-evaluator scores, and item-by-item comparison of two runs |
 | **Alerts** | Alert rules with live state, one-click test notifications, and alert history |
@@ -259,15 +259,15 @@ The local dashboard is built around production debugging workflows:
 | **Costs** | Spend today/week/month, budget used/remaining, failed-run waste, cache savings |
 | **Tools** | Tool call inspector with permissions, approval status, side effects, sandbox logs |
 | **Memory & RAG** | Memory operations, versioned records, retrieved chunks, similarity scores, source metadata |
-| **Replay Studio** | Deterministic replay of a whole trace or from a selected span; simulated and live modes from the CLI/API |
+| **Replay** | Deterministic replay of a whole trace or from a selected span; simulated and live modes from the CLI/API |
 
 <table>
   <tr>
     <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/sessions.png" alt="Sessions page: a three-turn support conversation with inputs, outputs, status, and user feedback per turn"><br><b>Sessions</b> — every turn of a conversation, with feedback</td>
-    <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/trace-detail-cockpit.png" alt="Trace detail: cost, tokens, slowest and most expensive steps, insights, span tree, and waterfall"><br><b>Trace detail</b> — cost, hotspots, span tree, waterfall</td>
+    <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/trace-detail-cockpit.png" alt="Trace detail: duration, spans, tokens, and cost, insights, a combined span tree and waterfall timeline, and the selected LLM span's details"><br><b>Trace detail</b> — timeline, insights, span details</td>
   </tr>
   <tr>
-    <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/overview-trace-launchpad.png" alt="Overview: runs, success rate, failures, latency, cost, recent traces, and failure inbox"><br><b>Overview</b> — health, cost, recent traces, failure inbox</td>
+    <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/overview-trace-launchpad.png" alt="Overview: KPI cards for traces, error rate, p95 latency, tokens, and cost, trace volume and latency charts, grouped issues, and spend by model"><br><b>Overview</b> — KPIs, trends, issues, spend by model</td>
     <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/workflow-graph.png" alt="Workflow graph: agent, model, and tool nodes with status, latency, cost, and tokens"><br><b>Workflow graph</b> — agents, model calls, and tools as nodes</td>
   </tr>
   <tr>
@@ -275,7 +275,7 @@ The local dashboard is built around production debugging workflows:
     <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/alerts.png" alt="Alerts page: rules for failed runs, expensive traces, tool loops, and spend, with firing state and recent notifications"><br><b>Alerts</b> — failures, spend, and loops, to Slack or a webhook</td>
   </tr>
   <tr>
-    <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/cost-center.png" alt="Cost center: spend, projected spend, failed-run waste, cost confidence, and cost by workflow"><br><b>Costs</b> — spend, failed-run waste, cost by workflow/model</td>
+    <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/cost-center.png" alt="Costs: spend today, this week, and this month, projected spend, failed-run waste, budget progress, spend over time, and token mix"><br><b>Costs</b> — spend, budget, failed-run waste, cost by model</td>
     <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/connect.png" alt="Connect page: OTLP endpoint and setup snippets for OpenTelemetry, the Python SDK, OpenAI Agents SDK, and Pydantic AI"><br><b>Connect</b> — endpoint and copy-paste setup for your stack</td>
   </tr>
 </table>
@@ -297,7 +297,7 @@ AgentMesh
 ├── Tool Layer        MCP Proxy, Sandboxed Commands, Permissions, Human Approval
 ├── Memory Layer      Workflow Memory, Long-term Memory, Vector Store, Checkpoints
 ├── Model Providers   OpenAI-compatible, Ollama, Anthropic, Gemini, vLLM, Router
-├── Dashboard         Workflow Graph, Trace Explorer, Cost Analytics, Replay Studio
+├── Dashboard         Overview, Trace Explorer, Sessions, Experiments, Alerts, Costs, Workflow Graph, Replay
 └── SDK + CLI
 ```
 

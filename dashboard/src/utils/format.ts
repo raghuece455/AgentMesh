@@ -6,7 +6,10 @@ export function numeric(value: unknown): number {
 }
 
 export function formatMoney(value: unknown): string {
-  return `$${numeric(value).toFixed(4)}`
+  const number = numeric(value)
+  const abs = Math.abs(number)
+  const digits = abs === 0 || abs >= 100 ? 2 : abs >= 1 ? 2 : abs >= 0.01 ? 3 : 4
+  return `${number < 0 ? '-' : ''}$${abs.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
 }
 
 export function formatCost(value: unknown, status?: string | null): string {
@@ -21,13 +24,20 @@ export function formatNumber(value: unknown): string {
   return Math.round(numeric(value)).toLocaleString()
 }
 
+/** 1.2k, 3.4M: for axis labels and stat cards. */
+export function formatCompact(value: unknown): string {
+  return new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(numeric(value))
+}
+
 export function formatMs(value: unknown): string {
   const number = numeric(value)
   if (!number)
-    return '0 ms'
+    return '0ms'
+  if (number >= 60_000)
+    return `${Math.floor(number / 60_000)}m ${Math.round((number % 60_000) / 1000)}s`
   if (number >= 1000)
-    return `${(number / 1000).toFixed(2)} s`
-  return `${Math.round(number)} ms`
+    return `${(number / 1000).toFixed(number >= 10_000 ? 1 : 2)}s`
+  return `${Math.round(number)}ms`
 }
 
 export function formatPercent(value: unknown): string {
@@ -38,6 +48,34 @@ export function formatDecimal(value: unknown): string {
   if (value === null || value === undefined)
     return '-'
   return numeric(value).toFixed(2)
+}
+
+/** "just now", "4m ago", "3h ago", "2d ago", then a date. */
+export function formatRelative(value: string | undefined | null, now = Date.now()): string {
+  if (!value)
+    return '-'
+  const time = Date.parse(value)
+  if (Number.isNaN(time))
+    return value
+  const seconds = Math.round((now - time) / 1000)
+  if (seconds < 45)
+    return 'just now'
+  if (seconds < 3600)
+    return `${Math.max(1, Math.round(seconds / 60))}m ago`
+  if (seconds < 86400)
+    return `${Math.round(seconds / 3600)}h ago`
+  if (seconds < 86400 * 7)
+    return `${Math.round(seconds / 86400)}d ago`
+  return new Date(time).toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+export function formatDateTime(value: string | undefined | null): string {
+  if (!value)
+    return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime()))
+    return value
+  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 export function formatTime(value: string | undefined | null): string {

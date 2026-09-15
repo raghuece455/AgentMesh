@@ -246,13 +246,6 @@ def create_app(db_path: str | Path | None = None):
             return (dashboard_dist / "index.html").read_text(encoding="utf-8")
         return DASHBOARD_HTML
 
-    @app.get("/vision-space.svg", include_in_schema=False)
-    def dashboard_background() -> Response:
-        background = dashboard_dist / "vision-space.svg" if dashboard_dist is not None else None
-        if background is None or not background.exists():
-            raise HTTPException(status_code=404)
-        return Response(background.read_bytes(), media_type="image/svg+xml")
-
     @app.get("/healthz")
     def healthz() -> dict[str, object]:
         return {"status": "ok", "database": resolved_db, "traces": len(store.list_traces(1))}

@@ -1,172 +1,228 @@
 @import "tailwindcss";
 
-@theme {
-  --color-mesh-ink: #111827;
-  --color-mesh-panel: #ffffff;
-  --color-mesh-muted: #f3f4f6;
-  --color-mesh-border: #d1d5db;
-  --color-mesh-canvas: #eef2f5;
-  --color-mesh-rail: #073b3a;
-  --color-mesh-teal: #0f766e;
-  --color-mesh-amber: #b45309;
-  --color-mesh-rose: #be123c;
-}
+/* Theme is chosen in the app (light, dark, or follow the system) and applied as a class on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
 
-body {
-  margin: 0;
-  background: var(--color-mesh-canvas);
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+:root {
+  color-scheme: light;
+  --canvas: #f6f6f7;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --surface-3: #e9e9ec;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --fg: #18181b;
+  --fg-muted: #52525b;
+  --fg-subtle: #8b8b94;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-fg: #ffffff;
+  --accent-soft: #eef0ff;
+  --accent-text: #4f46e5;
+  --success: #16a34a;
+  --success-soft: #e7f8ee;
+  --success-text: #15803d;
+  --danger: #dc2626;
+  --danger-soft: #fdecec;
+  --danger-text: #b91c1c;
+  --warning: #d97706;
+  --warning-soft: #fdf3e1;
+  --warning-text: #b45309;
+  --info: #2563eb;
+  --info-soft: #e8f0fe;
+  --info-text: #1d4ed8;
+  --violet: #9333ea;
+  --violet-soft: #f4ebfd;
+  --violet-text: #7e22ce;
+  --chart-1: #6366f1;
+  --chart-2: #14b8a6;
+  --chart-3: #f59e0b;
+  --chart-4: #ec4899;
+  --chart-5: #0ea5e9;
+  --chart-6: #a855f7;
+  --chart-grid: #ececef;
+  --shadow-card: 0 1px 2px rgb(16 16 20 / 4%), 0 1px 1px rgb(16 16 20 / 2%);
+  --shadow-pop: 0 12px 32px rgb(16 16 20 / 14%), 0 2px 6px rgb(16 16 20 / 6%);
 }
 
 .dark {
-  --color-mesh-ink: #f8fafc;
-  --color-mesh-panel: #0f172a;
-  --color-mesh-muted: #1e293b;
-  --color-mesh-border: #334155;
-  --color-mesh-canvas: #020617;
-  --color-mesh-rail: #042f2e;
-  --color-mesh-teal: #2dd4bf;
+  color-scheme: dark;
+  --canvas: #0a0a0c;
+  --surface: #111114;
+  --surface-2: #17171b;
+  --surface-3: #222228;
+  --border: #25252b;
+  --border-strong: #34343c;
+  --fg: #f4f4f5;
+  --fg-muted: #a1a1aa;
+  --fg-subtle: #6e6e78;
+  --accent: #7c7ff5;
+  --accent-hover: #9194f8;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(124 127 245 / 15%);
+  --accent-text: #a5a8fb;
+  --success: #22c55e;
+  --success-soft: rgb(34 197 94 / 13%);
+  --success-text: #4ade80;
+  --danger: #ef4444;
+  --danger-soft: rgb(239 68 68 / 14%);
+  --danger-text: #f87171;
+  --warning: #f59e0b;
+  --warning-soft: rgb(245 158 11 / 14%);
+  --warning-text: #fbbf24;
+  --info: #3b82f6;
+  --info-soft: rgb(59 130 246 / 15%);
+  --info-text: #60a5fa;
+  --violet: #a855f7;
+  --violet-soft: rgb(168 85 247 / 15%);
+  --violet-text: #c084fc;
+  --chart-1: #818cf8;
+  --chart-2: #2dd4bf;
+  --chart-3: #fbbf24;
+  --chart-4: #f472b6;
+  --chart-5: #38bdf8;
+  --chart-6: #c084fc;
+  --chart-grid: #1f1f25;
+  --shadow-card: 0 0 0 1px rgb(0 0 0 / 0%);
+  --shadow-pop: 0 16px 40px rgb(0 0 0 / 55%), 0 0 0 1px rgb(255 255 255 / 4%);
 }
 
-.vision-page {
-  min-height: 100dvh;
-  background-color: #08111c;
-  background-image:
-    linear-gradient(120deg, rgb(4 10 18 / 28%), rgb(8 11 17 / 18)),
-    url("/vision-space.svg");
-  background-position: center;
-  background-size: cover;
-  color: #f8fafc;
-  font-family: "SF Pro Display", Inter, ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: 0;
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-text: var(--success-text);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-text: var(--danger-text);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-text: var(--warning-text);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-text: var(--info-text);
+  --color-violet: var(--violet);
+  --color-violet-soft: var(--violet-soft);
+  --color-violet-text: var(--violet-text);
+  --shadow-card: var(--shadow-card);
+  --shadow-pop: var(--shadow-pop);
+  --font-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-.vision-shell {
-  min-height: calc(100dvh - 48px);
-  border: 1px solid rgb(255 255 255 / 32%);
-  border-radius: 30px;
-  background: rgb(86 94 105 / 46%);
-  box-shadow: 0 26px 76px rgb(0 0 0 / 38%), inset 0 1px 0 rgb(255 255 255 / 28%);
-  backdrop-filter: blur(28px) saturate(112%);
+html,
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-.vision-glass {
-  border: 1px solid rgb(255 255 255 / 22%);
-  border-radius: 22px;
-  background: rgb(92 101 113 / 52%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 18%), 0 14px 36px rgb(0 0 0 / 26%);
-  backdrop-filter: blur(22px) saturate(110%);
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
-.vision-glass-soft {
-  border: 1px solid rgb(255 255 255 / 22%);
-  border-radius: 22px;
-  background: rgb(104 112 123 / 46%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 20%), 0 12px 30px rgb(0 0 0 / 24%);
-  backdrop-filter: blur(20px) saturate(110%);
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
-.vision-pill {
-  border: 1px solid rgb(255 255 255 / 20%);
-  border-radius: 999px;
-  background: rgb(22 24 27 / 72%);
-  color: rgb(255 255 255 / 88%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 16%);
-  backdrop-filter: blur(18px);
+::selection {
+  background: var(--accent-soft);
 }
 
-.vision-pill-active {
-  border-color: rgb(255 255 255 / 28%);
-  background: rgb(24 24 30 / 96%);
-  color: white;
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
-.vision-rail {
-  border: 1px solid rgb(255 255 255 / 24%);
-  border-radius: 999px;
-  background: rgb(139 147 158 / 42%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 22%), 0 18px 40px rgb(0 0 0 / 25%);
-  backdrop-filter: blur(22px) saturate(110%);
+@keyframes am-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
 }
 
-.vision-toggle {
-  border-radius: 999px;
-  background: rgb(255 255 255 / 18%);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 20%);
+@keyframes am-slide-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
 }
 
-.vision-toggle-on {
-  background: #2f8cff;
+@keyframes am-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
-.vision-scroll {
-  scrollbar-color: rgb(255 255 255 / 36%) transparent;
+@keyframes am-shimmer {
+  from { background-position: -200px 0; }
+  to { background-position: 200px 0; }
 }
 
-.trace-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  border: 1px solid rgb(255 255 255 / 16%);
-  border-radius: 999px;
-  background: rgb(0 0 0 / 24%);
-  color: rgb(255 255 255 / 84%);
-  font-size: 0.8125rem;
-  line-height: 1.25rem;
-  font-weight: 600;
-  padding: 0.45rem 0.75rem;
-  transition: background 160ms ease, border-color 160ms ease;
+.animate-fade-in { animation: am-fade-in 180ms ease-out both; }
+.animate-slide-in { animation: am-slide-in 200ms ease-out both; }
+.animate-live { animation: am-pulse 1.8s ease-in-out infinite; }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 0, var(--surface-3) 60px, var(--surface-2) 120px);
+  background-size: 400px 100%;
+  animation: am-shimmer 1.2s linear infinite;
 }
 
-.trace-action:hover {
-  border-color: rgb(125 211 252 / 42%);
-  background: rgb(14 165 233 / 16%);
-}
+/* JSON syntax colors */
+.json-key { color: var(--accent-text); }
+.json-string { color: var(--success-text); }
+.json-number { color: var(--warning-text); }
+.json-literal { color: var(--violet-text); }
 
-.flow-node {
-  width: 210px;
-  height: 86px;
-  border: 1px solid rgb(255 255 255 / 16%);
-  border-radius: 18px;
-  background: rgb(0 0 0 / 34%);
-  color: #fff;
-  padding: 0.7rem 0.8rem;
-  text-align: left;
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%), 0 12px 24px rgb(0 0 0 / 24%);
-  backdrop-filter: blur(16px);
-}
-
-.flow-node-active {
-  border-color: rgb(125 211 252 / 72%);
-  background: rgb(14 165 233 / 24%);
-}
-
-.flow-node-failed {
-  border-color: rgb(251 113 133 / 72%);
-  background: rgb(244 63 94 / 18%);
-}
-
+/* React Flow, themed to match */
 .react-flow {
-  background: rgb(0 0 0 / 10%);
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--border-strong);
+  --xy-controls-button-background-color: var(--surface);
+  --xy-controls-button-background-color-hover: var(--surface-2);
+  --xy-controls-button-color: var(--fg-muted);
+  --xy-controls-button-border-color: var(--border);
+  --xy-minimap-background-color: var(--surface);
+}
+
+.react-flow__handle {
+  opacity: 0;
 }
 
 .react-flow__controls {
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   overflow: hidden;
   box-shadow: none;
 }
 
-.react-flow__controls-button {
-  background: rgb(20 24 31 / 92%);
-  border-bottom-color: rgb(255 255 255 / 10%);
-  color: #fff;
+.react-flow__minimap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.react-flow__minimap {
-  border: 1px solid rgb(255 255 255 / 14%);
-  border-radius: 16px;
-  overflow: hidden;
-  background: rgb(15 23 42 / 78%);
+.recharts-cartesian-axis-tick-value {
+  fill: var(--fg-subtle);
+  font-size: 11px;
+}
+
+.recharts-surface:focus,
+.recharts-wrapper:focus,
+.recharts-sector:focus {
+  outline: none;
 }

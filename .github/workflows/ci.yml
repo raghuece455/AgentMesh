@@ -130,7 +130,6 @@ jobs:
           grep -q 'id="root"' index.html
           asset=$(grep -o '/assets/index-[^"]*\.js' index.html | head -n 1)
           curl -sf "http://127.0.0.1:8796${asset}" > /dev/null
-          curl -sf http://127.0.0.1:8796/vision-space.svg > /dev/null
           echo "Wheel serves the React dashboard"
 
   dashboard:
@@ -170,6 +169,5 @@ jobs:
           curl -sf http://127.0.0.1:8795/api/experiments > /dev/null
           curl -sf http://127.0.0.1:8795/api/alerts/rules > /dev/null
           curl -sf http://127.0.0.1:8795/api/alerts/events > /dev/null
-          curl -sf http://127.0.0.1:8795/vision-space.svg > /dev/null
           curl -sf -X POST -H "Content-Type: application/json" -d '{"resourceSpans": []}' http://127.0.0.1:8795/v1/traces > /dev/null
           echo "All dashboard endpoints OK"

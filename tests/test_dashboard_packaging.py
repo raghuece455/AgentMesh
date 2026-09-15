@@ -12,7 +12,6 @@ def _fake_dist(root: Path, marker: str) -> Path:
     (root / "assets").mkdir(parents=True)
     (root / "index.html").write_text(f'<div id="root"></div><!-- {marker} -->', encoding="utf-8")
     (root / "assets" / "app.js").write_text("console.log('dashboard')", encoding="utf-8")
-    (root / "vision-space.svg").write_text("<svg/>", encoding="utf-8")
     return root
 
 
@@ -39,7 +38,6 @@ def test_app_serves_react_build_and_assets(tmp_path, monkeypatch):
 
     assert "served" in client.get("/").text
     assert client.get("/assets/app.js").text == "console.log('dashboard')"
-    assert client.get("/vision-space.svg").headers["content-type"].startswith("image/svg+xml")
 
 
 def test_app_falls_back_to_minimal_page_without_a_build(tmp_path, monkeypatch):
@@ -48,5 +46,4 @@ def test_app_falls_back_to_minimal_page_without_a_build(tmp_path, monkeypatch):
 
     page = client.get("/")
     assert page.status_code == 200 and "AgentMesh Dashboard" in page.text and 'id="root"' not in page.text
-    assert client.get("/vision-space.svg").status_code == 404
     assert client.get("/assets/app.js").status_code == 404

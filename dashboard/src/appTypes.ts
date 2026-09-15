@@ -16,7 +16,6 @@ import type {
   PromptSummary,
   ProviderHealth,
   RagRetrieval,
-  TimeseriesData,
   ToolCallRecord,
   TraceSummary,
   WorkflowSummary,
@@ -43,7 +42,6 @@ export type Section =
 
 export interface DashboardData {
   overview: OverviewData | null
-  timeseries: TimeseriesData
   traces: TraceSummary[]
   workflows: WorkflowSummary[]
   agents: AgentSummary[]
@@ -91,7 +89,6 @@ export interface LiveEventRecord {
 
 export const emptyData: DashboardData = {
   overview: null,
-  timeseries: { points: [] },
   traces: [],
   workflows: [],
   agents: [],

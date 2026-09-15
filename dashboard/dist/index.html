@@ -3,13 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AgentMesh Dashboard</title>
-    <script type="module" crossorigin src="/assets/index-BvbefLRf.js"></script>
-    <link rel="modulepreload" crossorigin href="/assets/charts-Bv4DTF6g.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-Bf8-IW0J.css">
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23818cf8'/%3E%3Cstop offset='1' stop-color='%236366f1'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cg stroke='white' stroke-width='1.6' stroke-linecap='round' opacity='.9'%3E%3Cpath d='M10 10 22 12M10 10l2 12M22 12 12 22M22 12v10M12 22h10'/%3E%3C/g%3E%3Cg fill='white'%3E%3Ccircle cx='10' cy='10' r='2.6'/%3E%3Ccircle cx='22' cy='12' r='2.2'/%3E%3Ccircle cx='12' cy='22' r='2.2'/%3E%3Ccircle cx='22' cy='22' r='2.6'/%3E%3C/g%3E%3C/svg%3E" />
+    <title>AgentMesh</title>
+    <script>
+      // Apply the saved theme before first paint so dark mode does not flash white.
+      try {
+        var theme = new URLSearchParams(location.search).get('theme') || localStorage.getItem('agentmesh.theme') || 'system'
+        if (theme === 'dark' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+          document.documentElement.classList.add('dark')
+      }
+      catch (error) {}
+    </script>
+    <script type="module" crossorigin src="/assets/index-DoU8e9-O.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/charts-BdIdtz2j.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-Cmgu4QUI.css">
   </head>
   <body>
     <div id="root"></div>
   </body>
 </html>
-
