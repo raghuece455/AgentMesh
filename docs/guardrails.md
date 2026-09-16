@@ -112,6 +112,11 @@ rules:
     match: {kind: tool, input_regex: "(sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})"}
     action: deny
 
+  - name: approved-domains-only
+    match: {kind: tool, host: "*"}
+    except: {host: ["*.mycompany.com", "api.openai.com"]}
+    action: deny               # an egress allowlist, enforced before the call
+
   - name: health-checks
     match: {tool: ping}
     action: allow              # exempt from this policy, limits included
@@ -134,6 +139,7 @@ A rule matches when every key in `match` matches and nothing in `except` does. P
 | `name` | span name for any kind |
 | `agent` | the agent the call runs under |
 | `provider`, `service`, `environment` | `gen_ai.provider.name`, `service_name`, `environment` from `agentmesh.init()` |
+| `host` | a host the call would reach, from its span attributes (`url.full`, `server.address`, ...) or its arguments. Calls with no host never match, so `match: {kind: tool, host: "*"}` scopes an allowlist to calls that go somewhere. See [access.md](access.md) |
 | `arguments` | argument values by name; dotted paths reach nested values (`payee.country`) |
 | `input_regex` | a regular expression searched in the call's arguments or prompt |
 

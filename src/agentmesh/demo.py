@@ -311,6 +311,16 @@ def _seed_swarms(store: SQLiteStore) -> list[str]:
     def tool_attrs(name: str, arguments: str) -> dict:
         return {"gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": name, "gen_ai.tool.call.arguments": arguments}
 
+    def http_attrs(url: str, method: str = "GET") -> dict:
+        return {"http.request.method": method, "url.full": url, "server.address": url.split("/")[2]}
+
+    def access_event(target: str, at, seconds: float, kind: str = "db", operation: str = "read", detail: str | None = None) -> dict:
+        return {
+            "name": "agentmesh.resource.access",
+            "time": at(seconds),
+            "attributes": {"agentmesh.access.target": target, "agentmesh.access.kind": kind, "agentmesh.access.operation": operation, "agentmesh.access.detail": detail},
+        }
+
     def message(to: str, content: str, at, seconds: float, kind: str = "message") -> dict:
         return {"name": "agentmesh.agent.message", "time": at(seconds), "attributes": {"agentmesh.message.to": to, "agentmesh.message.kind": kind, "agentmesh.message.content": content}}
 
@@ -330,7 +340,10 @@ def _seed_swarms(store: SQLiteStore) -> list[str]:
         span(orchestrator, "market research", 0, 640, at, span_id=root, attributes={"input.value": "Size the 2027 market for liquid-cooled GPU racks", "output.value": "Report approved: $4.1B TAM, 38% CAGR", "tag.tags": ["demo", "swarm"]}, resource=resource),
         span(orchestrator, "invoke_agent planner", 2, 300, at, parent=root, span_id=planner, attributes=agent_attrs("planner"), resource=resource),
         span(orchestrator, "chat claude-sonnet-5", 3, 9, at, parent=planner, attributes=llm_attrs("claude-sonnet-5", 2_400, 620, 0.0165), resource=resource),
-        span(orchestrator, "invoke_agent writer", 305, 560, at, parent=root, span_id=writer, attributes=agent_attrs("writer"), events=[message("reviewer", "Draft report ready for review", at, 548, "handoff")], resource=resource),
+        span(orchestrator, "invoke_agent writer", 305, 560, at, parent=root, span_id=writer, attributes=agent_attrs("writer"), events=[
+            access_event("analytics:gpu_price_history", at, 312, detail="select 4,120 rows"),
+            message("reviewer", "Draft report ready for review", at, 548, "handoff"),
+        ], resource=resource),
         span(orchestrator, "chat claude-sonnet-5", 310, 380, at, parent=writer, attributes=llm_attrs("claude-sonnet-5", 18_500, 3_900, 0.114), resource=resource),
         span(orchestrator, "chat claude-sonnet-5", 390, 540, at, parent=writer, attributes=llm_attrs("claude-sonnet-5", 26_000, 5_200, 0.156), resource=resource),
         span(orchestrator, "invoke_agent reviewer", 562, 636, at, parent=root, span_id=reviewer, attributes=agent_attrs("reviewer"), resource=resource),
@@ -353,6 +366,10 @@ def _seed_swarms(store: SQLiteStore) -> list[str]:
         ]
         for call in range(3 if failed else 2):
             worker.append(span(worker_trace, "execute_tool web_search", start + 14 + call * 18, start + 26 + call * 18, at, parent=researcher, attributes=tool_attrs("web_search", f'{{"query": "{topic} 2027"}}'), error="429 rate limited" if failed else None, resource=worker_resource))
+        source = ["https://www.sec.gov/cgi-bin/browse-edgar", "https://api.crunchbase.com/v4/entities", "https://www.eia.gov/electricity/data", "https://pastebin.com/raw/9dKq2Xb1", "https://arxiv.org/list/cs.DC/recent", "https://eur-lex.europa.eu/legal-content"][index]
+        worker.append(span(worker_trace, f"GET {source.split('/')[2]}", start + 30, start + 34, at, parent=researcher, attributes=http_attrs(source), error="403 Forbidden" if failed else None, resource=worker_resource))
+        if index in {0, 2}:
+            worker.append(span(worker_trace, "search_documents", start + 40, start + 44, at, parent=researcher, attributes={"gen_ai.operation.name": "retrieval", "gen_ai.data_source.id": "market-reports-index", "gen_ai.retrieval.query.text": "liquid cooling market size"}, resource=worker_resource))
         if not failed:
             worker.append(span(worker_trace, "chat gpt-4.1", start + 60, end - 5, at, parent=researcher, attributes=llm_attrs("gpt-4.1", 14_000 + index * 900, 1_800, 0.0424 + index * 0.002), resource=worker_resource))
         if index in {1, 4}:
@@ -385,6 +402,8 @@ def _seed_swarms(store: SQLiteStore) -> list[str]:
         crawl.append(span(crawl_trace, "execute_tool fetch_page", start + 1, (start + 12) if end is not None else None, at, parent=crawler, attributes=tool_attrs("fetch_page", f'{{"url": "https://example.com/pricing/{index}"}}'), error="403 Forbidden" if failed and not running else None, resource=crawl_resource))
         if end is not None and not failed:
             crawl.append(span(crawl_trace, "chat gpt-4.1-mini", start + 13, end - 1, at, parent=crawler, attributes=llm_attrs("gpt-4.1-mini", 2_600, 240, 0.0014), resource=crawl_resource))
+        if index % 20 == 0:
+            crawl.append(span(crawl_trace, "GET cdn.example.net", start + 2, start + 4, at, parent=crawler, attributes=http_attrs(f"https://cdn.example.net/assets/{index}.css"), resource=crawl_resource))
     store.ingest_spans(crawl, source="otlp")
     return trace_ids
 

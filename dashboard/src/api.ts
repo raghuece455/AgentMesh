@@ -1,4 +1,6 @@
 import type {
+  AccessDestination,
+  AccessRecord,
   AgentSummary,
   ApprovalRecord,
   Checkpoint,
@@ -328,6 +330,14 @@ export function deleteExperiment(experimentId: string): Promise<JsonRecord> {
   return sendJson<JsonRecord>('DELETE', `/api/experiments/${encodeURIComponent(experimentId)}`)
 }
 
+export function listAccess(filters: { kind?: string; target?: string; exact?: boolean; trace_id?: string; agent?: string; hours?: number; limit?: number } = {}): Promise<AccessRecord[]> {
+  return getJson<AccessRecord[]>(`/api/access${queryString(filters)}`)
+}
+
+export function getAccessSummary(filters: { kind?: string; hours?: number; limit?: number } = {}): Promise<AccessDestination[]> {
+  return getJson<AccessDestination[]>(`/api/access/summary${queryString(filters)}`)
+}
+
 export function listSwarms(filters: { q?: string; limit?: number; hours?: number } = {}): Promise<SwarmSummaryRow[]> {
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(filters)) {
@@ -340,6 +350,16 @@ export function listSwarms(filters: { q?: string; limit?: number; hours?: number
 
 export function getSwarm(swarmId: string): Promise<SwarmDetail> {
   return getJson<SwarmDetail>(`/api/swarms/${encodeURIComponent(swarmId)}`)
+}
+
+function queryString(filters: Record<string, unknown>): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '')
+      params.set(key, String(value))
+  }
+  const query = params.toString()
+  return query ? `?${query}` : ''
 }
 
 export function getGuardrailsSummary(hours = 24): Promise<GuardrailsSummary> {

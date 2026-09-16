@@ -232,6 +232,17 @@ class AgentMeshMCPServer:
             annotations=read_only,
         )
         self._tool(
+            "list_access",
+            "What agents reached: outbound hosts (egress) and the data they read or wrote (retrievals, memory, databases, files), with how often and by how many agents. Use it to answer 'did anything talk to an unexpected domain?'.",
+            {
+                "kind": {"type": "string", "enum": ["network", "retrieval", "memory", "db", "file", "api", "other"]},
+                "hours": {"type": "number", "description": "Only the last N hours; destinations first seen in the window are flagged is_new"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+            },
+            self._list_access,
+            annotations=read_only,
+        )
+        self._tool(
             "list_swarms",
             "Agent swarms (many agents working as one run, often across traces): status, agent count, failed agents, calls, tokens, and cost.",
             {"limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}, "query": {"type": "string", "description": "Match swarm id, name, or service"}},
@@ -288,6 +299,13 @@ class AgentMeshMCPServer:
         if function is None:
             raise _ToolError(f"The configured store does not support {method}; use an AgentMesh SQLite or PostgreSQL store.")
         return function
+
+    def _list_access(self, args: JsonObject) -> JsonObject:
+        from datetime import UTC, datetime, timedelta
+
+        hours = args.get("hours")
+        since = (datetime.now(UTC) - timedelta(hours=float(hours))).isoformat() if hours else None
+        return {"destinations": self._require("access_summary")(since=since, limit=int(args.get("limit", 50)), kind=args.get("kind"))}
 
     def _get_swarm(self, args: JsonObject) -> JsonObject:
         detail = self._require("get_swarm")(_required(args, "swarm_id"))

@@ -32,6 +32,7 @@ Agent runs are hard to debug once prompts, tools, retrieval, retries, sub-agents
 - **Scores and feedback** — thumbs up/down in the dashboard, `POST /api/scores`, SDK scores, and OTel `gen_ai.evaluation.result` events.
 - **Datasets and experiments** — turn traces into test cases with one click, run a new prompt or model over them, and compare item by item: what regressed, what improved, what it cost. Gate releases in CI with `agentmesh experiments run --fail-under`. [Evals →](docs/datasets-and-experiments.md)
 - **LLM-as-judge** — `LLMJudge("correctness", judge=...)` with any model, plus exact-match, contains, regex, JSON, and similarity evaluators; score production traces with `evaluate_traces()`.
+- **Egress and data access** — every host your agents reached and every store they read, from HTTP spans, URLs in tool arguments, retrievals and memory; new destinations flagged; and an allowlist rule that blocks a call to an unapproved domain before it is made. [Access →](docs/access.md)
 - **Guardrails and kill switch** — policies that block, pause for approval, or limit tool calls, LLM calls, and agents *before they run*: stop tool loops, runaway spend, production deletes, unapproved models, and swarm fan-out; try a policy in monitor mode or simulate it on recorded traces first; halt a service, agent, or trace in one click. [Guardrails →](docs/guardrails.md)
 - **Alerts** — Slack, Discord, or signed webhook notifications for failure spikes, spend, expensive traces, p95 latency, and agents stuck in tool loops. [Alerts →](docs/alerts.md)
 - **Accurate cost tracking** — per-million-token pricing with cache-read/cache-write rates, current Claude, GPT, and Gemini prices built in, `agentmesh pricing sync` for everything else.
@@ -305,6 +306,7 @@ The local dashboard is built around production debugging workflows, with a comma
 | **Swarms** | Swarm runs across traces and processes: an agent graph (or role graph for large swarms), activity over time, insights, agents, messages, and Stop swarm |
 | **Sessions** | Multi-turn conversations: every turn's input, output, status, cost, and feedback in order |
 | **Datasets & Evals** | Datasets built from traces or by hand, experiment runs with per-evaluator scores, and item-by-item comparison of two runs |
+| **Access** | Hosts agents reached and data they read, with new destinations flagged, per-agent drill-down, and links to the run |
 | **Guardrails** | Policies with a YAML editor, templates, and simulation on recorded traces; blocked, approval, and would-block decisions; a kill switch for services, agents, and traces |
 | **Alerts** | Alert rules with live state, one-click test notifications, and alert history |
 | **Connect** | Your OTLP endpoint and copy-paste setup for OpenTelemetry, the Python and TypeScript SDKs, OpenAI Agents SDK, Pydantic AI, and MCP |
@@ -558,6 +560,7 @@ Good first issues are labeled [`good first issue`](https://github.com/raghuece45
 | [docs/typescript-sdk.md](docs/typescript-sdk.md) | TypeScript/JavaScript SDK (`agentmesh-sdk`) |
 | [docs/datasets-and-experiments.md](docs/datasets-and-experiments.md) | Datasets, experiments, evaluators, LLM-as-judge, CI gating |
 | [docs/swarms.md](docs/swarms.md) | Agent swarms across traces and processes: SDK, OpenTelemetry attributes, swarm graph, stopping a swarm |
+| [docs/access.md](docs/access.md) | Egress and data access: what agents reached, and allowlists that block a call before it is made |
 | [docs/guardrails.md](docs/guardrails.md) | Policies, limits, approvals, simulation, and the kill switch |
 | [docs/alerts.md](docs/alerts.md) | Alert rules and Slack / Discord / webhook notifications |
 | [docs/mcp.md](docs/mcp.md) | MCP server for Claude Code, Cursor, and other MCP clients |

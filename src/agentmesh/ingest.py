@@ -301,6 +301,7 @@ def ingest_spans(
     capture_content: bool | None = None,
 ) -> JsonObject:
     """Write spans into the observability tables. Idempotent per span_id."""
+    from agentmesh.access import write_access
     from agentmesh.observability import _workflow_for_trace
     from agentmesh.swarms import write_messages, write_trace_swarms
 
@@ -339,6 +340,7 @@ def ingest_spans(
             _write_evaluations(conn, item)
             _write_policy_decisions(conn, item)
             write_messages(conn, item, capture)
+            write_access(conn, item, capture)
     return {"spans": len(normalized), "traces": len(by_trace), "trace_ids": list(by_trace)}
 
 

@@ -68,6 +68,7 @@ from agentmesh.sdk import (
     handoff,
     init,
     observe,
+    record_access,
     score,
     send_message,
     shutdown,
@@ -105,6 +106,7 @@ __all__ = [
     # Agent swarms
     "Swarm",
     "handoff",
+    "record_access",
     "send_message",
     "swarm",
     "swarm_context",

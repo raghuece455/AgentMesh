@@ -146,6 +146,18 @@ closed. Sync and async clients are both supported. `uninstrument_openai()` /
 
 ---
 
+## Egress and data access
+
+```python
+agentmesh.record_access("customers.invoices", kind="db", operation="read", detail="200 rows")
+```
+
+Hosts from HTTP spans and URLs in tool arguments, retrievals, and memory operations are recorded for
+you; use `record_access` for anything else. A policy rule matching on `host` blocks a call to an
+unapproved domain before it is made. See [access.md](access.md).
+
+---
+
 ## Agent swarms
 
 ```python

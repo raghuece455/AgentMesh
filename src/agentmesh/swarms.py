@@ -25,6 +25,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
+from agentmesh.access import access_for_traces
 from agentmesh.policy import short_name
 from agentmesh.policy_store import _halt_json
 from agentmesh.swarm_limits import swarm_limit_status
@@ -357,6 +358,7 @@ def swarm_rows(conn: sqlite3.Connection, swarm_id: str, max_spans: int = MAX_SWA
         (swarm_id,),
     ).fetchone()
     return {
+        "access": access_for_traces(conn, [trace["trace_id"] for trace in traces]),
         "halt": _halt_json(halt) if halt is not None else None,
         **swarm_limit_status(conn, swarm_json),
         "swarm": {
@@ -379,6 +381,7 @@ def swarm_report(rows: JsonObject) -> JsonObject:
     """Turn :func:`swarm_rows` into the swarm report: summary, agents, edges, roles, timeline, insights."""
     traces = rows["traces"]
     report = analyze_swarm(traces, rows["spans"], rows["links"], rows["messages"])
+    report["access"] = rows["access"]
     report["summary"]["truncated"] = bool(rows["truncated"])
     return {
         **rows["swarm"],

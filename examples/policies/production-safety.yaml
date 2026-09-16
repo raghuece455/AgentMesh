@@ -24,6 +24,13 @@ rules:                         # checked in order; the first match wins
     match: {tool: issue_refund}
     action: require_approval
 
+  - name: approved-domains-only
+    # Only calls that reach a host are matched, so offline tools are untouched. See docs/access.md.
+    match: {kind: tool, host: "*"}
+    except: {host: ["*.mycompany.com", "api.openai.com", "duckduckgo.com"]}
+    action: deny
+    reason: That domain is not on the allowlist.
+
   - name: api-keys-in-tool-input
     match: {kind: tool, input_regex: "(sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})"}
     action: deny

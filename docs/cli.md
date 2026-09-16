@@ -169,6 +169,17 @@ Kinds: `failure_rate`, `failure_count`, `cost`, `trace_cost`, `latency_p95`, `lo
 
 ---
 
+## Access
+
+```bash
+agentmesh access summary [--hours 24] [--kind network] [--limit 50]   # destinations, most used first
+agentmesh access list [--kind db] [--target invoices] [--exact] [--trace ID] [--agent researcher] [--hours 24]
+```
+
+See [access.md](access.md).
+
+---
+
 ## Swarms
 
 ```bash

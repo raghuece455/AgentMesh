@@ -118,6 +118,17 @@ See [alerts.md](alerts.md).
 
 ---
 
+## Access
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/access` | Hosts agents reached and data they read or wrote, newest first. Query params: `kind` (`network`, `retrieval`, `memory`, `db`, `file`, `api`, `other`), `target`, `trace_id`, `agent`, `hours`, `limit` |
+| `GET` | `/api/access/summary` | Destinations and resources with accesses, agents, traces, errors, first and last use, and `is_new` within the window. Query params: `kind`, `hours`, `limit` |
+
+Trace detail includes `access`; swarm detail includes it grouped by destination. See [access.md](access.md).
+
+---
+
 ## Swarms
 
 | Method | Path | Description |

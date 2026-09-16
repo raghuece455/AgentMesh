@@ -251,6 +251,7 @@ class SQLiteStore:
         from agentmesh.observability import install_schema
 
         tables = [
+            "resource_access",
             "agent_messages_log",
             "span_links",
             "swarm_traces",
@@ -1330,6 +1331,18 @@ class SQLiteStore:
         from agentmesh import policy_store
 
         return self._write(policy_store.get_approval, approval_id)  # type: ignore[return-value]
+
+    # -- access: egress and data -----------------------------------------------------------
+
+    def list_access(self, limit: int = 200, kind: str | None = None, target: str | None = None, trace_id: str | None = None, agent: str | None = None, since: str | None = None, exact: bool = False) -> list[JsonObject]:
+        from agentmesh import access
+
+        return self._read(access.list_access, limit, kind, target, trace_id, agent, since, exact)  # type: ignore[return-value]
+
+    def access_summary(self, since: str | None = None, limit: int = 100, kind: str | None = None) -> list[JsonObject]:
+        from agentmesh import access
+
+        return self._read(access.access_summary, since, limit, kind)  # type: ignore[return-value]
 
     # -- swarms -------------------------------------------------------------------------
 

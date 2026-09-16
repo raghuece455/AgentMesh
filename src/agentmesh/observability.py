@@ -473,6 +473,14 @@ def _apply_lightweight_migrations(conn: sqlite3.Connection) -> None:
         "insert or ignore into schema_migrations (version, name, applied_at) values (5, 'swarms', ?)",
         (utc_now(),),
     )
+    from agentmesh.access import ACCESS_SCHEMA
+
+    for statement in ACCESS_SCHEMA:
+        conn.execute(statement)
+    conn.execute(
+        "insert or ignore into schema_migrations (version, name, applied_at) values (6, 'resource_access', ?)",
+        (utc_now(),),
+    )
 
 
 # v0.4: datasets, experiments, and alerting. Written in the SQL subset shared by SQLite and PostgreSQL.
@@ -1571,6 +1579,7 @@ TRACE_SCOPED_TABLES = (
     "evaluations",
     "replay_checkpoints",
     "policy_decisions",
+    "resource_access",
     "span_links",
     "agent_messages_log",
     "swarm_traces",

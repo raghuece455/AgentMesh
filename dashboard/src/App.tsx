@@ -46,6 +46,7 @@ import { Sidebar } from './components/layout/Sidebar'
 import { Topbar, type DataScope, type ThemeSetting } from './components/layout/Topbar'
 import { Skeleton } from './components/ui/Card'
 import { Toast } from './components/ui/Overlay'
+import { AccessPage } from './pages/AccessPage'
 import { AgentsPage } from './pages/AgentsPage'
 import { AlertsPage } from './pages/AlertsPage'
 import { ApprovalsPage, PENDING_APPROVAL } from './pages/ApprovalsPage'
@@ -549,6 +550,8 @@ export function App() {
         return <ModelsPage providers={data.providers} models={data.models} modelCalls={data.modelCalls} onTrace={openTrace} />
       case 'tools':
         return <ToolsPage toolCalls={data.toolCalls} onTrace={openTrace} />
+      case 'access':
+        return <AccessPage refreshKey={connection.lastSuccessfulRefresh} range={range} onTrace={openTrace} />
       case 'memory':
         return <MemoryRagPage memoryRecords={data.memoryRecords} operations={data.memoryOperations} retrievals={data.ragRetrievals} onTrace={openTrace} />
       case 'prompts':

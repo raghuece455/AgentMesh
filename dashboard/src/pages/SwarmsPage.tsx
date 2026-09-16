@@ -1,8 +1,9 @@
-import { AlertTriangle, ArrowLeft, ArrowUpRight, Bot, CircleDollarSign, Gauge, GitFork, Info, ListTree, MessagesSquare, Network, OctagonX, Play, ScrollText, Users, Waypoints } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowUpRight, Bot, CircleDollarSign, Gauge, GitFork, Globe, Info, ListTree, MessagesSquare, Network, OctagonX, Play, ScrollText, Users, Waypoints } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Area, Bar, CartesianGrid, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { createHalt, getSwarm, listSwarms, releaseHalt } from '../api'
 import { EDGE_STYLE, SwarmGraph } from '../components/swarm/SwarmGraph'
+import { KindBadge } from '../components/access/KindBadge'
 import { Badge, StatusBadge, StatusDot } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Callout, Card, EmptyState, KeyValue, Meter, PageHeader, Skeleton } from '../components/ui/Card'
@@ -131,7 +132,7 @@ function SwarmList({ refreshKey, range, onSelect }: { refreshKey: string | null;
 function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; refreshKey: string | null; onBack: () => void; onTrace: (traceId: string, spanId?: string) => void }) {
   const [detail, setDetail] = useState<SwarmDetail | null>(null)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'graph' | 'agents' | 'messages' | 'traces'>('graph')
+  const [tab, setTab] = useState<'graph' | 'agents' | 'messages' | 'access' | 'traces'>('graph')
   const [view, setView] = useState<'agents' | 'roles' | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -300,6 +301,7 @@ function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; 
                 { value: 'graph', label: 'Graph', icon: <Network /> },
                 { value: 'agents', label: 'Agents', icon: <Users />, count: summary.agents },
                 { value: 'messages', label: 'Messages', icon: <MessagesSquare />, count: summary.messages + summary.handoffs },
+                { value: 'access', label: 'Access', icon: <Globe />, count: detail.access.length },
                 { value: 'traces', label: 'Traces', icon: <ListTree />, count: summary.traces },
               ]}
             />
@@ -384,6 +386,25 @@ function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; 
                   </ol>
                 )
             )}
+            {tab === 'access' && (detail.access.length === 0
+              ? <EmptyState icon={<Globe />} title="Nothing reached" detail="Hosts agents called and stores they read appear here, from HTTP spans, URLs in tool calls, retrievals, and memory." />
+              : (
+                  <DataTable
+                    rows={detail.access}
+                    rowKey={row => `${row.kind}:${row.target}`}
+                    minWidth={720}
+                    maxHeight="max-h-[70vh]"
+                    initialSort={{ column: 2, desc: true }}
+                    columns={[
+                      { label: 'Kind', width: '110px', sortValue: row => row.kind, render: row => <KindBadge kind={row.kind} /> },
+                      { label: 'Target', sortValue: row => row.target, render: row => <span className="truncate font-mono text-[12.5px] text-fg" title={row.target}>{row.target}</span> },
+                      { label: 'Accesses', align: 'right', sortValue: row => row.calls, render: row => <span className="tabular text-fg">{formatNumber(row.calls)}</span> },
+                      { label: 'Agents', align: 'right', sortValue: row => row.agents, render: row => <span className="tabular text-fg-muted">{formatNumber(row.agents)}</span> },
+                      { label: 'Errors', align: 'right', sortValue: row => row.errors, render: row => <span className={cn('tabular', row.errors ? 'font-medium text-danger-text' : 'text-fg-subtle')}>{formatNumber(row.errors)}</span> },
+                      { label: 'Last used', align: 'right', sortValue: row => Date.parse(row.last_seen) || 0, render: row => <span className="whitespace-nowrap text-fg-muted" title={formatDateTime(row.last_seen)}>{formatRelative(row.last_seen)}</span> },
+                    ]}
+                  />
+                ))}
             {tab === 'traces' && (
               <DataTable
                 rows={detail.traces}
