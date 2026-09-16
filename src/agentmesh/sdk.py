@@ -64,8 +64,10 @@ OPENINFERENCE_KIND = {
     "evaluator": "EVALUATOR",
 }
 MAX_CAPTURED_ITEMS = 1000
+MAX_MESSAGE_CHARS = 2_000
 
 _current_span: contextvars.ContextVar[Span | None] = contextvars.ContextVar("agentmesh_current_span", default=None)
+_swarm_context: contextvars.ContextVar[SwarmRef | None] = contextvars.ContextVar("agentmesh_swarm", default=None)
 _trace_context: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     "agentmesh_trace_context", default=None
 )
@@ -287,6 +289,8 @@ class AgentMeshConfig:
     max_batch_size: int = 512
     guardrails: bool = True
     policies: list[Any] = field(default_factory=list)
+    swarm_id: str | None = None
+    swarm_name: str | None = None
 
 
 class AgentMeshClient:
@@ -399,6 +403,9 @@ def init(
         max_batch_size=max_batch_size,
         guardrails=guardrails if guardrails is not None else _env_flag("AGENTMESH_GUARDRAILS", True),
         policies=configured_policies,
+        # A worker process started by a swarm joins it through the environment.
+        swarm_id=os.getenv("AGENTMESH_SWARM_ID") or None,
+        swarm_name=os.getenv("AGENTMESH_SWARM_NAME") or None,
     )
     with _client_lock:
         previous = _client
@@ -454,8 +461,10 @@ class Span:
         attributes: dict[str, Any] | None = None,
         parent: Span | None = None,
         trace_attributes: dict[str, Any] | None = None,
+        root: bool = False,
+        swarm: SwarmRef | None = None,
     ) -> None:
-        parent = parent if parent is not None else _current_span.get()
+        parent = None if root else parent if parent is not None else _current_span.get()
         self.name = name
         self.kind = kind
         self.trace_id = parent.trace_id if parent is not None else secrets.token_hex(16)
@@ -469,6 +478,10 @@ class Span:
         self.status_message: str | None = None
         self._tokens: list[tuple[contextvars.ContextVar[Any], contextvars.Token[Any]]] = []
         self._trace_attributes = trace_attributes
+        self.links: list[dict[str, Any]] = []
+        # The swarm this span belongs to: the innermost agentmesh.swarm(), else its parent's, else
+        # the process's (AGENTMESH_SWARM_ID).
+        self._swarm: SwarmRef | None = swarm or _swarm_context.get() or (parent._swarm if parent is not None else None) or _process_swarm()
         # Guardrails: the agent this span runs under, the raw input policies match against, and
         # whether the span has been checked (spans are checked once, before they first run).
         self._agent_name: str | None = name if kind == "agent" else (parent._agent_name if parent is not None else None)
@@ -489,6 +502,10 @@ class Span:
             self.attributes["gen_ai.tool.name"] = name
         elif kind == "workflow":
             self.attributes["gen_ai.workflow.name"] = name
+        if self._swarm is not None:
+            self.attributes["agentmesh.swarm.id"] = self._swarm.id
+            if self._swarm.name:
+                self.attributes["agentmesh.swarm.name"] = self._swarm.name
         inherited = dict(_trace_context.get() or {})
         inherited.update(trace_attributes or {})
         self.set_attributes(inherited)
@@ -596,6 +613,19 @@ class Span:
     ) -> None:
         score(name, value, trace_id=self.trace_id, span_id=self.span_id, comment=comment, label=label)
 
+    def add_link(self, trace_id: str, span_id: str, link_type: str = "link", attributes: dict[str, Any] | None = None) -> Span:
+        """Link this span to a span in another trace (an OpenTelemetry span link).
+
+        ``link_type`` is recorded as ``agentmesh.link.type``: ``spawned_by`` connects an agent's trace
+        to the span that started it, ``handoff`` to the agent that handed work over.
+        """
+        self.links.append({
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "attributes": {"agentmesh.link.type": link_type, **{key: _attribute_value(value) for key, value in (attributes or {}).items()}},
+        })
+        return self
+
     # -- guardrails ----------------------------------------------------------
     def _policy_context(self, arguments: Any = None) -> Any:
         from agentmesh.policy import ActionContext
@@ -611,6 +641,7 @@ class Span:
             model=self.attributes.get("gen_ai.request.model"),
             provider=self.attributes.get("gen_ai.provider.name"),
             arguments=arguments if arguments is not None else self._policy_input,
+            swarm_id=self._swarm.id if self._swarm is not None else None,
         )
 
     def _record_decision(self, decision: Any) -> None:
@@ -694,6 +725,7 @@ class Span:
                 events=list(self.events),
                 resource=client.resource,
                 scope="agentmesh.sdk",
+                links=list(self.links),
             )
         )
 
@@ -773,8 +805,13 @@ def trace(
     metadata: dict[str, Any] | None = None,
     input: Any = None,
     kind: str = "workflow",
+    spawned_by: dict[str, Any] | None = None,
 ) -> Span:
-    """Start a trace (a root span) and set session/user/tags for everything inside it."""
+    """Start a trace (a root span) and set session/user/tags for everything inside it.
+
+    ``spawned_by`` is a :func:`swarm_context` from the agent that started this work, possibly in
+    another process: the trace always starts fresh, joins that swarm, and links to the spawning span.
+    """
     trace_attributes: dict[str, Any] = {}
     if session_id:
         trace_attributes["gen_ai.conversation.id"] = session_id
@@ -783,11 +820,134 @@ def trace(
     if tags:
         trace_attributes["tag.tags"] = list(tags)
     attributes = {f"agentmesh.metadata.{key}": value for key, value in (metadata or {}).items()}
-    created = Span(name, kind, attributes, trace_attributes=trace_attributes)
+    swarm_ref = None
+    if spawned_by and spawned_by.get("swarm_id") and _swarm_context.get() is None:
+        swarm_ref = SwarmRef(str(spawned_by["swarm_id"]), spawned_by.get("swarm_name"))
+    created = Span(name, kind, attributes, trace_attributes=trace_attributes, root=spawned_by is not None, swarm=swarm_ref)
+    if spawned_by and spawned_by.get("trace_id") and spawned_by.get("span_id"):
+        created.add_link(str(spawned_by["trace_id"]), str(spawned_by["span_id"]), "spawned_by")
     if input is not None:
         created.set_input(input)
         created._policy_input = input
     return created
+
+
+# ---------------------------------------------------------------------------
+# Swarms
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SwarmRef:
+    id: str
+    name: str | None = None
+
+
+class Swarm:
+    """A group of agents working as one run. Every span started inside belongs to it.
+
+    ``with agentmesh.swarm("research"):`` for agents in one process; pass :func:`swarm_context` to
+    workers elsewhere and start their work with ``agentmesh.trace(..., spawned_by=context)``.
+    """
+
+    def __init__(self, name: str | None = None, swarm_id: str | None = None) -> None:
+        self.id = swarm_id or f"swarm_{secrets.token_hex(8)}"
+        self.name = name
+        # One stack per thread: the same Swarm object is often entered in every worker thread.
+        self._entered = threading.local()
+
+    def context(self) -> dict[str, Any]:
+        """What a worker needs to join this swarm, linked to the current span if there is one."""
+        current = _current_span.get()
+        return {
+            "swarm_id": self.id,
+            "swarm_name": self.name,
+            "trace_id": current.trace_id if current is not None else None,
+            "span_id": current.span_id if current is not None else None,
+        }
+
+    def __enter__(self) -> Swarm:
+        stack = getattr(self._entered, "stack", None)
+        if stack is None:
+            stack = self._entered.stack = []
+        previous = _swarm_context.get()
+        stack.append((_swarm_context.set(SwarmRef(self.id, self.name)), previous))
+        return self
+
+    def __exit__(self, *_exc: Any) -> bool:
+        stack = getattr(self._entered, "stack", None)
+        if not stack:
+            return False
+        token, previous = stack.pop()
+        try:
+            _swarm_context.reset(token)
+        except ValueError:
+            # Entered and left in different contexts (async tasks): restore the value directly.
+            _swarm_context.set(previous)
+        return False
+
+    async def __aenter__(self) -> Swarm:
+        return self.__enter__()
+
+    async def __aexit__(self, *exc: Any) -> bool:
+        return self.__exit__(*exc)
+
+
+def swarm(name: str | None = None, *, swarm_id: str | None = None) -> Swarm:
+    """Start (or, with ``swarm_id``, rejoin) a swarm. Use with ``with`` / ``async with``."""
+    return Swarm(name, swarm_id)
+
+
+def swarm_context() -> dict[str, Any]:
+    """The current swarm and span, as a JSON-serializable dict to hand to a worker.
+
+    Send it with the task (a queue message, an HTTP header, an environment variable) and start the
+    worker's work with ``agentmesh.trace("worker", spawned_by=context)``.
+    """
+    current = _current_span.get()
+    ref = current._swarm if current is not None else (_swarm_context.get() or _process_swarm())
+    return {
+        "swarm_id": ref.id if ref is not None else None,
+        "swarm_name": ref.name if ref is not None else None,
+        "trace_id": current.trace_id if current is not None else None,
+        "span_id": current.span_id if current is not None else None,
+    }
+
+
+def send_message(to: str, content: Any = None, *, kind: str = "message", to_context: dict[str, Any] | None = None) -> None:
+    """Record that the current agent sent a message to agent ``to``.
+
+    ``to_context`` (the recipient's :func:`swarm_context`) pins the exact recipient when several
+    agents share a name. Content is recorded only when content capture is on. Outside a span (no
+    trace to record it on) this does nothing.
+    """
+    current = _current_span.get()
+    if current is None:
+        return
+    attributes: dict[str, Any] = {
+        "agentmesh.message.from": current._agent_name,
+        "agentmesh.message.to": to,
+        "agentmesh.message.kind": kind,
+    }
+    if to_context:
+        attributes["agentmesh.message.to_trace_id"] = to_context.get("trace_id")
+        attributes["agentmesh.message.to_span_id"] = to_context.get("span_id")
+    if content is not None and _capture_content():
+        text = content if isinstance(content, str) else json.dumps(_jsonable(content), default=str)
+        attributes["agentmesh.message.content"] = f"{text[:MAX_MESSAGE_CHARS]}…" if len(text) > MAX_MESSAGE_CHARS else text
+    current.add_event("agentmesh.agent.message", attributes)
+
+
+def handoff(to: str, content: Any = None, *, to_context: dict[str, Any] | None = None) -> None:
+    """Record that the current agent handed its work over to agent ``to``."""
+    send_message(to, content, kind="handoff", to_context=to_context)
+
+
+def _process_swarm() -> SwarmRef | None:
+    client = get_client()
+    if not client.config.swarm_id:
+        return None
+    return SwarmRef(client.config.swarm_id, client.config.swarm_name)
 
 
 def get_current_span() -> Span | None:

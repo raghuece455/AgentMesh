@@ -118,6 +118,17 @@ See [alerts.md](alerts.md).
 
 ---
 
+## Swarms
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/swarms` | Swarm runs with status, agents, failed and running agents, traces, LLM and tool calls, tokens, cost, and duration. Query params: `q`, `hours`, `limit`, `offset` |
+| `GET` | `/api/swarms/{swarm_id}` | `summary`, agents (`nodes`), spawn/message/handoff `edges`, `roles` (the graph grouped by agent name), `messages`, `timeline`, `insights`, and member `traces` |
+
+Trace detail (`GET /api/traces/{trace_id}`) includes `swarms`, the swarms the trace belongs to. Halts accept `"scope": "swarm"`. See [swarms.md](swarms.md).
+
+---
+
 ## Guardrails
 
 | Method | Path | Description |

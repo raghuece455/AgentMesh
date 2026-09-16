@@ -87,6 +87,9 @@ class SpanData:
     events: list[dict[str, Any]] = field(default_factory=list)
     resource: dict[str, Any] = field(default_factory=dict)
     scope: str | None = None
+    # OpenTelemetry span links: [{"trace_id", "span_id", "attributes"}]. Swarms use them to connect
+    # an agent's trace to the span that started it.
+    links: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -299,9 +302,11 @@ def ingest_spans(
 ) -> JsonObject:
     """Write spans into the observability tables. Idempotent per span_id."""
     from agentmesh.observability import _workflow_for_trace
+    from agentmesh.swarms import write_messages, write_trace_swarms
 
     if not spans:
         return {"spans": 0, "traces": 0, "trace_ids": []}
+    capture = content_capture_enabled() if capture_content is None else capture_content
     normalized = [normalize_span(span, capture_content) for span in spans]
     index = {item.span.span_id: item for item in normalized}
     for item in normalized:
@@ -316,6 +321,7 @@ def ingest_spans(
     # so ingestion cost stays proportional to the batch, not the database.
     for trace_id, items in by_trace.items():
         _upsert_trace(conn, trace_id, items, source)
+        write_trace_swarms(conn, trace_id, items)
         workflow = _workflow_for_trace(conn, trace_id)
         for item in items:
             _write_span(conn, item, workflow)
@@ -332,6 +338,7 @@ def ingest_spans(
                 _upsert_agent(conn, item)
             _write_evaluations(conn, item)
             _write_policy_decisions(conn, item)
+            write_messages(conn, item, capture)
     return {"spans": len(normalized), "traces": len(by_trace), "trace_ids": list(by_trace)}
 
 

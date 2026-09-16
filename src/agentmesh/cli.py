@@ -74,6 +74,15 @@ def main() -> None:
     sessions_show = sessions_subcommands.add_parser("show", help="Show every trace in a session")
     sessions_show.add_argument("session_id")
 
+    swarms_parser = subcommands.add_parser("swarms", help="Inspect agent swarms: many agents working as one run")
+    swarms_subcommands = swarms_parser.add_subparsers(dest="swarms_command", required=True)
+    swarms_list = swarms_subcommands.add_parser("list", help="List recent swarms")
+    swarms_list.add_argument("--limit", type=int, default=20)
+    swarms_list.add_argument("--query", help="Match swarm id, name, or service")
+    swarms_show = swarms_subcommands.add_parser("show", help="Show a swarm's summary, roles, and insights")
+    swarms_show.add_argument("swarm_id")
+    swarms_show.add_argument("--full", action="store_true", help="Include every agent, edge, message, and the timeline")
+
     ingest_parser = subcommands.add_parser("ingest", help="Ingest an OTLP/JSON trace file (ExportTraceServiceRequest)")
     ingest_parser.add_argument("file", help="Path to an OTLP JSON file")
 
@@ -258,6 +267,7 @@ def main() -> None:
     halt_create = halt_subcommands.add_parser("create", help="Stop a trace, an agent, a service, or everything")
     halt_scope = halt_create.add_mutually_exclusive_group(required=True)
     halt_scope.add_argument("--all", action="store_true", help="Stop every agent")
+    halt_scope.add_argument("--swarm", help="Stop every agent in a swarm, by swarm id")
     halt_scope.add_argument("--trace", help="Stop one trace")
     halt_scope.add_argument("--agent", help="Stop an agent by name")
     halt_scope.add_argument("--service", help="Stop a service by name")
@@ -344,6 +354,17 @@ def main() -> None:
             if session is None:
                 raise SystemExit(f"Session not found: {args.session_id}")
             print(json.dumps(session, indent=2))
+    elif args.command == "swarms":
+        store = create_store(args.db)
+        if args.swarms_command == "list":
+            _print(store.list_swarms(limit=args.limit, query=args.query))
+        else:
+            detail = store.get_swarm(args.swarm_id)
+            if detail is None:
+                raise SystemExit(f"Swarm not found: {args.swarm_id}")
+            if not args.full:
+                detail = {key: detail[key] for key in ("swarm_id", "name", "service_name", "summary", "roles", "insights")}
+            _print(detail)
     elif args.command == "ingest":
         from agentmesh.otlp import decode_json
 
@@ -434,7 +455,7 @@ def _run_halt(db_path: str, args: argparse.Namespace) -> None:
     command = args.halt_command
     if command == "create":
         scope, value = next(
-            (name, getattr(args, name)) for name in ("all", "trace", "agent", "service") if getattr(args, name)
+            (name, getattr(args, name)) for name in ("all", "swarm", "trace", "agent", "service") if getattr(args, name)
         )
         halt = store.create_halt({"scope": scope, "value": None if scope == "all" else value, "reason": args.reason, "created_by": "cli"})
         store.audit(None, "cli", "guardrails.halt", scope, {"halt": halt})

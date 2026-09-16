@@ -85,6 +85,7 @@ const LIMIT_LABELS: Record<string, (value: number) => string> = {
 const HALT_SCOPES: Array<{ value: HaltRecord['scope']; label: string; hint: string }> = [
   { value: 'service', label: 'Service', hint: 'Every agent in one service, e.g. support-bot' },
   { value: 'agent', label: 'Agent', hint: 'One agent by name, wherever it runs' },
+  { value: 'swarm', label: 'Swarm', hint: 'Every agent in one swarm, in every process (the swarm id from the Swarms page)' },
   { value: 'trace', label: 'Trace', hint: 'One run, by trace ID' },
   { value: 'all', label: 'Everything', hint: 'Every agent connected to this server' },
 ]
@@ -566,7 +567,7 @@ function HaltDrawer({ open, onClose, onCreated }: { open: boolean; onClose: () =
           <Segmented value={scope} onChange={setScope} options={HALT_SCOPES.map(item => ({ value: item.value, label: item.label }))} />
           <span className="text-xs text-fg-subtle">{selected?.hint}</span>
         </div>
-        {needsValue && <TextField label={scope === 'trace' ? 'Trace ID' : scope === 'agent' ? 'Agent name' : 'Service name'} value={value} onChange={setValue} placeholder={scope === 'trace' ? '4bf92f3577b34da6a3ce929d0e0e4736' : scope === 'agent' ? 'researcher' : 'support-bot'} />}
+        {needsValue && <TextField label={{ trace: 'Trace ID', agent: 'Agent name', swarm: 'Swarm ID', service: 'Service name' }[scope]} value={value} onChange={setValue} placeholder={{ trace: '4bf92f3577b34da6a3ce929d0e0e4736', agent: 'researcher', swarm: 'swarm_8c1f04e2a9b3d756', service: 'support-bot' }[scope]} />}
         <TextField label="Reason" value={reason} onChange={setReason} placeholder="Runaway spend on the refunds agent" hint="Shown to people on this page and in the error the agent receives." />
         {scope === 'all' && <Callout tone="danger" icon={<ShieldAlert />} title="This stops every agent">Every SDK and runtime connected to this server stops at its next call.</Callout>}
         {error && <p className="text-[13px] text-danger-text">{error}</p>}
@@ -602,7 +603,7 @@ function kindOf(kind: string): SpanKind {
 }
 
 function scopeLabel(scope: HaltRecord['scope']): string {
-  return { all: 'Everything', trace: 'Trace', agent: 'Agent', service: 'Service' }[scope]
+  return { all: 'Everything', swarm: 'Swarm', trace: 'Trace', agent: 'Agent', service: 'Service' }[scope]
 }
 
 function haltLabel(halt: HaltRecord): string {

@@ -7,6 +7,11 @@ All notable changes to AgentMesh are documented here. AgentMesh follows [Semanti
 ## [Unreleased]
 
 ### Added
+- **Agent swarms.** Many agents across traces and processes, grouped into one run. Traces join a swarm through the `agentmesh.swarm.id` attribute (resource or span) or a span link to a trace already in it. The **Swarms** page lists swarm runs and shows each as an agent graph (who started whom, messages, handoffs; grouped by role above 120 agents), activity over time, per-agent calls, tokens, and cost, and insights for failed agents, runaway fan-out, deep nesting, and cost hotspots. **Stop swarm** halts every agent in it. See [docs/swarms.md](docs/swarms.md).
+- Python SDK: `agentmesh.swarm()`, `agentmesh.swarm_context()`, `agentmesh.trace(..., spawned_by=context)`, `agentmesh.send_message()`, `agentmesh.handoff()`, `Span.add_link()`, and `AGENTMESH_SWARM_ID` / `AGENTMESH_SWARM_NAME`.
+- OpenTelemetry span links are ingested (OTLP JSON and protobuf) and exported by the SDK.
+- `GET /api/swarms`, `GET /api/swarms/{swarm_id}`, `swarms` on trace detail, `agentmesh swarms list | show`, MCP tools `list_swarms` and `get_swarm`, and the `swarm` halt scope (`agentmesh halt create --swarm`).
+- `examples/agent_swarm.py`; the demo seed adds two swarms.
 - **Guardrails.** Policies checked before every tool call, LLM call, and agent start in the Python SDK (`@observe`, `span()`), OpenAI and Anthropic instrumentation (before the HTTP request), and the AgentMesh runtime. Rules match on tool, model, agent, service, environment, arguments, or an input regex and `deny`, `require_approval`, `warn`, or `allow`. Per-trace limits stop tool loops (`max_repeated_calls`), runaway spend and tokens, long runs, deep agent nesting, and swarm fan-out. `monitor` mode records what would be blocked without blocking. Blocked calls raise `agentmesh.PolicyViolation`. See [docs/guardrails.md](docs/guardrails.md).
 - **Kill switch.** Halt a trace, an agent, a service, or everything from the dashboard, `agentmesh halt create`, or `POST /api/halts`; running agents stop at their next call (`AgentHalted`) within seconds. Halts and releases are audited.
 - **Blocking approvals.** `require_approval` pauses the call until a reviewer answers on the Approvals page, without blocking the event loop in async code; unanswered requests are denied after `approval.timeout_seconds`.
@@ -19,6 +24,7 @@ All notable changes to AgentMesh are documented here. AgentMesh follows [Semanti
 
 ### Changed
 - PyYAML is now a dependency (policies are written in YAML).
+- `agentmesh traces prune` now also deletes the pruned traces' guardrail decisions, swarm membership, span links, and agent messages, and drops swarms that have no traces left.
 
 ### Fixed
 - Dashboard side panels and toasts were positioned relative to the page instead of the window after the page's entry animation, so a panel opened on a scrolled page could appear offset.

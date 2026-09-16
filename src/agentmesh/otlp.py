@@ -205,7 +205,20 @@ def _span(raw: Any, resource: dict[str, Any], scope: str | None) -> SpanData | N
         ],
         resource=resource,
         scope=scope,
+        links=_links(raw.get("links")),
     )
+
+
+def _links(raw: Any) -> list[dict[str, Any]]:
+    links: list[dict[str, Any]] = []
+    for link in _list(raw):
+        if not isinstance(link, dict):
+            continue
+        trace_id = _id(link.get("traceId") or link.get("trace_id"), 32)
+        span_id = _id(link.get("spanId") or link.get("span_id"), 16)
+        if trace_id and span_id:
+            links.append({"trace_id": trace_id, "span_id": span_id, "attributes": _attributes(link.get("attributes"))})
+    return links
 
 
 def _id(value: Any, length: int) -> str | None:
@@ -283,6 +296,11 @@ def _encode_span(span: SpanData) -> JsonObject:
     }
     if span.parent_span_id:
         encoded["parentSpanId"] = span.parent_span_id
+    if span.links:
+        encoded["links"] = [
+            {"traceId": link["trace_id"], "spanId": link["span_id"], "attributes": _encode_attributes(link.get("attributes") or {})}
+            for link in span.links
+        ]
     if span.status_message:
         encoded["status"]["message"] = span.status_message  # type: ignore[index]
     return encoded

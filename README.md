@@ -8,7 +8,7 @@
 [![MCP](https://img.shields.io/badge/MCP-server-black.svg)](docs/mcp.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-**AgentMesh is free, open-source, self-hosted observability for AI agents: traces, sessions, costs, automatic debugging insights, datasets and LLM-as-judge evaluations, and alerts — for agents built with any framework, in Python or TypeScript.**
+**AgentMesh is free, open-source, self-hosted observability and guardrails for AI agents and agent swarms: traces, swarm graphs, sessions, costs, automatic debugging insights, evaluations, alerts, policies, and a kill switch — for agents built with any framework, in Python or TypeScript.**
 
 Agent runs are hard to debug once prompts, tools, retrieval, retries, sub-agents, and humans start influencing each other. AgentMesh records every run as an inspectable trace so you can answer *what happened*, *which step broke first*, *is it looping*, *how much it cost*, and *where the time went*.
 
@@ -27,6 +27,7 @@ Agent runs are hard to debug once prompts, tools, retrieval, retries, sub-agents
 - **TypeScript SDK** — `npm install agentmesh-sdk`: `observe()`, `trace()`, `score()`, `instrumentOpenAI()`, `instrumentAnthropic()`, and `runExperiment()` for Node.js agents. [TypeScript →](docs/typescript-sdk.md)
 - **Auto-instrumentation** — `instrument_openai()` and `instrument_anthropic()`: Chat Completions, Responses, Embeddings, Messages, streaming, tool calls, cache and reasoning tokens.
 - **Automatic insights** — first failure with its causal path, tool-call loops, repeated identical prompts, runaway context growth, prompt-cache hit rate, self-time and cost hotspots.
+- **Agent swarms** — many agents across traces and processes as one run: who started whom, who messaged whom, per-agent calls and cost, activity over time, failed agents and runaway fan-out, and one button to stop the whole swarm. Works over plain OpenTelemetry. [Swarms →](docs/swarms.md)
 - **Sessions and users** — multi-turn conversations grouped by `gen_ai.conversation.id`, with every turn's input, output, and feedback.
 - **Scores and feedback** — thumbs up/down in the dashboard, `POST /api/scores`, SDK scores, and OTel `gen_ai.evaluation.result` events.
 - **Datasets and experiments** — turn traces into test cases with one click, run a new prompt or model over them, and compare item by item: what regressed, what improved, what it cost. Gate releases in CI with `agentmesh experiments run --fail-under`. [Evals →](docs/datasets-and-experiments.md)
@@ -159,6 +160,27 @@ Try both offline: `python examples/datasets_experiments.py`, then open **Dataset
 
 ---
 
+## See a swarm as one run
+
+A planner fans work out to researchers in other processes; they report to a writer. Each worker is its own trace, so trace by trace the run is invisible. Group them into a swarm:
+
+```python
+with agentmesh.swarm("market research"):
+    with agentmesh.trace("orchestrator"):
+        context = agentmesh.swarm_context()            # send with each task
+
+# in each worker process
+with agentmesh.trace("research", spawned_by=task.context):
+    researcher(task)                                   # @agentmesh.observe(kind="agent")
+    agentmesh.send_message("writer", notes)
+```
+
+The **Swarms** page draws the agent graph across traces (grouped by role for swarms of hundreds of agents), charts agents running over time, flags failed agents, runaway fan-out, deep nesting, and cost hotspots, and has a **Stop swarm** button that halts every agent in it. No SDK? Set the `agentmesh.swarm.id` resource attribute and add a span link to the spawning span. Try it offline: `python examples/agent_swarm.py`.
+
+![Swarm view: activity over time, insights, and the agent graph](https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/swarm.png)
+
+---
+
 ## Stop agents that misbehave
 
 Observability shows you the loop after it happened. Guardrails stop it while it happens. Policies are checked before every tool call, LLM call, and agent start:
@@ -280,6 +302,7 @@ The local dashboard is built around production debugging workflows, with a comma
 |---|---|
 | **Overview** | KPI cards with sparklines (traces, error rate, p95 latency, tokens, cost), trace volume and latency charts, failures grouped into issues, spend by model, provider health |
 | **Traces** | Dense searchable table with shareable filters and CSV export; a trace view with the span tree and waterfall in one searchable timeline, automatic insights, a span panel with chat-style input/output, side-by-side comparison with another run, keyboard navigation, export, replay |
+| **Swarms** | Swarm runs across traces and processes: an agent graph (or role graph for large swarms), activity over time, insights, agents, messages, and Stop swarm |
 | **Sessions** | Multi-turn conversations: every turn's input, output, status, cost, and feedback in order |
 | **Datasets & Evals** | Datasets built from traces or by hand, experiment runs with per-evaluator scores, and item-by-item comparison of two runs |
 | **Guardrails** | Policies with a YAML editor, templates, and simulation on recorded traces; blocked, approval, and would-block decisions; a kill switch for services, agents, and traces |
@@ -401,6 +424,7 @@ examples/
 ├── sdk_quickstart.py               # Trace plain Python with the SDK (offline)
 ├── datasets_experiments.py         # Traces -> dataset -> two versions -> comparison (offline)
 ├── guardrails.py                   # Block, break a loop, approve, and halt with a policy (offline)
+├── agent_swarm.py                  # A planner, 12 researchers in workers, a writer: one swarm (offline)
 ├── otel_genai_export.py            # Standard OpenTelemetry GenAI spans -> AgentMesh
 ├── llm_client_auto_instrumentation.py  # instrument_openai() / instrument_anthropic()
 ├── hello_agent.py                  # Single-agent workflow
@@ -433,6 +457,7 @@ agentmesh mcp                                         # MCP server over stdio
 agentmesh demo seed
 agentmesh ingest trace.otlp.json                      # import an OTLP/JSON file
 agentmesh sessions list
+agentmesh swarms list                                 # agent swarms; agentmesh swarms show <swarm_id>
 agentmesh sessions show <session_id>
 agentmesh traces list
 agentmesh traces show <trace_id>
@@ -532,6 +557,7 @@ Good first issues are labeled [`good first issue`](https://github.com/raghuece45
 | [docs/sdk.md](docs/sdk.md) | Python SDK and OpenAI/Anthropic auto-instrumentation |
 | [docs/typescript-sdk.md](docs/typescript-sdk.md) | TypeScript/JavaScript SDK (`agentmesh-sdk`) |
 | [docs/datasets-and-experiments.md](docs/datasets-and-experiments.md) | Datasets, experiments, evaluators, LLM-as-judge, CI gating |
+| [docs/swarms.md](docs/swarms.md) | Agent swarms across traces and processes: SDK, OpenTelemetry attributes, swarm graph, stopping a swarm |
 | [docs/guardrails.md](docs/guardrails.md) | Policies, limits, approvals, simulation, and the kill switch |
 | [docs/alerts.md](docs/alerts.md) | Alert rules and Slack / Discord / webhook notifications |
 | [docs/mcp.md](docs/mcp.md) | MCP server for Claude Code, Cursor, and other MCP clients |

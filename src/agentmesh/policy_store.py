@@ -14,7 +14,7 @@ from typing import Any
 from agentmesh.policy import Policy, PolicyError, parse_spec
 from agentmesh.types import JsonObject, dumps_json, loads_json, new_id, utc_now
 
-HALT_SCOPES = ("all", "trace", "agent", "service")
+HALT_SCOPES = ("all", "swarm", "trace", "agent", "service")
 
 POLICY_SCHEMA = [
     """

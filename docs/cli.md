@@ -169,6 +169,18 @@ Kinds: `failure_rate`, `failure_count`, `cost`, `trace_cost`, `latency_p95`, `lo
 
 ---
 
+## Swarms
+
+```bash
+agentmesh swarms list [--query research] [--limit 20]
+agentmesh swarms show <swarm_id> [--full]      # summary, roles, insights; --full adds agents, edges, messages, timeline
+agentmesh halt create --swarm <swarm_id>        # stop every agent in the swarm
+```
+
+See [swarms.md](swarms.md).
+
+---
+
 ## Guardrails
 
 ```bash

@@ -60,15 +60,20 @@ from agentmesh.integrations import instrument_anthropic, instrument_openai, unin
 from agentmesh.sdk import (
     InMemoryExporter,
     Span,
+    Swarm,
     flush,
     get_client,
     get_current_span,
     get_current_trace_id,
+    handoff,
     init,
     observe,
     score,
+    send_message,
     shutdown,
     span,
+    swarm,
+    swarm_context,
     trace,
     update_current_trace,
 )
@@ -97,6 +102,12 @@ __all__ = [
     "uninstrument_anthropic",
     "uninstrument_openai",
     "update_current_trace",
+    # Agent swarms
+    "Swarm",
+    "handoff",
+    "send_message",
+    "swarm",
+    "swarm_context",
     # Datasets, experiments, and evaluators
     "Contains",
     "EvaluationResult",

@@ -70,6 +70,12 @@ async function main() {
     await waitFor(client, 'Agent tool loops')
     await waitFor(client, 'Recent notifications')
     await shot(client, 'alerts.png')
+    await click(client, 'Swarms')
+    await waitFor(client, 'market research')
+    await clickRow(client, 'market research')
+    await waitFor(client, 'planner started 6 agents')
+    await sleep(1200) // let the graph fit its view
+    await shot(client, 'swarm.png')
     // An active halt for the Guardrails screenshot, released again afterwards.
     const halt = await client.send('Runtime.evaluate', {
       expression: `fetch('/api/halts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'agent', value: 'research_swarm', reason: 'Fan-out spiked to 40 sub-agents in two minutes' }) }).then(response => response.json()).then(item => item.halt_id)`,
