@@ -97,7 +97,7 @@ def test_postgres_matches_sqlite_across_the_api(tmp_path):
         ("/api/memory/operations",) * 2, ("/api/rag/retrievals",) * 2, ("/api/prompts",) * 2, ("/api/approvals",) * 2,
         ("/api/evaluations/summary",) * 2, ("/api/datasets",) * 2, ("/api/experiments",) * 2, ("/api/alerts/rules",) * 2,
         ("/api/policies",) * 2, ("/api/policy-decisions",) * 2, ("/api/guardrails/summary",) * 2, ("/api/halts?active=false",) * 2,
-        ("/api/swarms",) * 2,
+        ("/api/swarms",) * 2, ("/api/access",) * 2, ("/api/access/summary",) * 2,
         tuple(f"/api/sessions/{value}" for value in ids["session_id"]),
         tuple(f"/api/agents/{value}/runs" for value in ids["agent_id"]),
         tuple(f"/api/workflows/{value}/graph" for value in ids["workflow_id"]),

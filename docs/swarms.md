@@ -109,7 +109,7 @@ Opening a swarm shows:
 - **Activity**: agents running, started, and failed over the swarm's lifetime;
 - **Insights**, each linked to the agent it is about;
 - **Graph**: one card per agent, left to right by who started whom, with message and handoff edges. Swarms of more than 120 agents open grouped by **role** (agent name), with counts on nodes and edges; switch between the two at any time. Past 600 agents only the role graph is drawn — find individual agents in the Agents tab;
-- **Agents**: every agent with its parent, depth, agents started, calls, cost, duration, and error; **Messages**; **Traces**;
+- **Agents**: every agent with its parent, depth, agents started, calls, cost, duration, and error; **Messages**; **Access** (hosts and stores the swarm reached, see [access.md](access.md)); **Traces**;
 - a panel for the selected agent with **Open in trace**, which opens the agent's trace with its span selected;
 - **Stop swarm**, which creates a swarm halt.
 

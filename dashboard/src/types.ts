@@ -160,6 +160,7 @@ export interface TraceDetail {
   diagnosis: Diagnosis
   policy_decisions?: PolicyDecision[]
   swarms?: Array<{ swarm_id: string; name: string }>
+  access?: AccessRecord[]
 }
 
 export interface CostSummary {
@@ -893,4 +894,33 @@ export interface SwarmDetail {
   messages: SwarmMessage[]
   timeline: Array<{ at: string; active: number; started: number; failed: number }>
   insights: SwarmInsight[]
+  access: Array<{ kind: AccessKind; target: string; calls: number; agents: number; errors: number; first_seen: string; last_seen: string }>
+}
+
+export type AccessKind = 'network' | 'retrieval' | 'memory' | 'db' | 'file' | 'api' | 'other'
+
+export interface AccessRecord {
+  access_id: string
+  trace_id: string
+  span_id: string | null
+  agent: string | null
+  service: string | null
+  kind: AccessKind
+  operation: string
+  target: string
+  detail: string | null
+  status: string | null
+  created_at: string
+}
+
+export interface AccessDestination {
+  kind: AccessKind
+  target: string
+  calls: number
+  traces: number
+  agents: number
+  errors: number
+  first_seen: string
+  last_seen: string
+  is_new: boolean
 }

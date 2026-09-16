@@ -447,6 +447,30 @@ def create_app(db_path: str | Path | None = None):
     ) -> list[dict[str, object]]:
         return store.list_sessions(limit=limit, user_id=user_id, offset=offset) if hasattr(store, "list_sessions") else []
 
+    @app.get("/api/access", dependencies=[Depends(require_auth)])
+    def access_records(
+        limit: int = Query(200, ge=1, le=1000),
+        kind: str | None = Query(None, pattern="^(network|retrieval|memory|db|file|api|other)$"),
+        target: str | None = None,
+        trace_id: str | None = None,
+        agent: str | None = None,
+        hours: int | None = Query(None, ge=1),
+        exact: bool = Query(False, description="Match target exactly instead of as a substring"),
+    ) -> list[dict[str, object]]:
+        """Hosts agents reached and data they read or wrote, newest first."""
+        since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat() if hours else None
+        return store.list_access(limit=limit, kind=kind, target=target, trace_id=trace_id, agent=agent, since=since, exact=exact)
+
+    @app.get("/api/access/summary", dependencies=[Depends(require_auth)])
+    def access_destinations(
+        hours: int | None = Query(None, ge=1),
+        kind: str | None = Query(None, pattern="^(network|retrieval|memory|db|file|api|other)$"),
+        limit: int = Query(100, ge=1, le=500),
+    ) -> list[dict[str, object]]:
+        """Every destination and resource, most used first, flagging those first seen in the window."""
+        since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat() if hours else None
+        return store.access_summary(since=since, limit=limit, kind=kind)
+
     @app.get("/api/swarms", dependencies=[Depends(require_auth)])
     def swarms(
         limit: int = Query(50, ge=1, le=500),

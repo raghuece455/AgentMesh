@@ -640,6 +640,7 @@ class Span:
             agent=self._agent_name,
             model=self.attributes.get("gen_ai.request.model"),
             provider=self.attributes.get("gen_ai.provider.name"),
+            attributes=self.attributes,
             arguments=arguments if arguments is not None else self._policy_input,
             swarm_id=self._swarm.id if self._swarm is not None else None,
         )
@@ -941,6 +942,21 @@ def send_message(to: str, content: Any = None, *, kind: str = "message", to_cont
 def handoff(to: str, content: Any = None, *, to_context: dict[str, Any] | None = None) -> None:
     """Record that the current agent handed its work over to agent ``to``."""
     send_message(to, content, kind="handoff", to_context=to_context)
+
+
+def record_access(target: str, *, kind: str = "other", operation: str = "read", detail: str | None = None) -> None:
+    """Record that this agent reached a host or touched a resource (a file, table, index, API).
+
+    AgentMesh already records HTTP spans, URLs in tool arguments, retrievals, and memory; use this
+    for anything else you want on the Access page, such as a file or table your own code opened.
+    Outside a span this does nothing.
+    """
+    current = _current_span.get()
+    if current is None:
+        return
+    from agentmesh.access import record_payload
+
+    current.add_event("agentmesh.resource.access", record_payload(target, kind, operation, detail))
 
 
 def _process_swarm() -> SwarmRef | None:

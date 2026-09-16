@@ -34,7 +34,7 @@ This populates the database with a set of pre-built traces covering successful r
 
 ## Layout and Navigation
 
-- **Sidebar** groups pages by job: *Observe* (Traces, Sessions, Swarms, Agents, Workflows), *Evaluate* (Datasets, Evaluations, Prompts), *Monitor* (Alerts, Costs, Models, Tools, Memory & RAG), and *Operate* (Guardrails, Approvals, Replay). Badges show firing alerts, active halts, and pending approvals. Collapse it to icons with **Collapse**.
+- **Sidebar** groups pages by job: *Observe* (Traces, Sessions, Swarms, Agents, Workflows), *Evaluate* (Datasets, Evaluations, Prompts), *Monitor* (Alerts, Costs, Models, Tools, Access, Memory & RAG), and *Operate* (Guardrails, Approvals, Replay). Badges show firing alerts, active halts, and pending approvals. Collapse it to icons with **Collapse**.
 - **Time range** (1h, 24h, 7d, 30d, All) and **data scope** (all data, real runs, demo only) in the top bar apply to every page. The range is kept in the address bar as `&range=7d`.
 - **Search** with **Ctrl K** (**⌘ K** on macOS) or **/**: jump to any page, find a trace by name, id, status, error, model, or session, or switch the theme.
 - **Keyboard shortcuts** — press **?** for the full list. **g** then a letter goes to a page (**g t** Traces, **g s** Sessions, **g r** Guardrails, **g c** Costs, ...). In a trace, **j** / **k** move between spans, **[** / **]** open the previous or next trace, **c** opens Compare, and **Esc** returns to the list.
@@ -169,6 +169,19 @@ Answers: *what did each agent actually do?*
 
 - Per-tool calls, failure rate, average duration, risk level, and side effects
 - Recent calls with results; click one for its input, output, logs, permission and approval status, and side effects
+
+### Access
+
+Answers: *what did my agents reach, and what data did they touch?*
+
+![Access](../dashboard/screenshots/access.png)
+
+- Every outbound host and every store (index, memory, table, file) for the selected range, with accesses, agents, traces, errors, and last use
+- Destinations first seen inside the range are marked **new** — usually the row worth looking at
+- Filter by Network or Data, search by host or resource, and select one to see each access, the agent behind it, and a link to its trace
+- A trace shows a **Reached** card; a swarm has an **Access** tab
+
+Records come from HTTP span attributes, URLs in tool calls, retrievals, memory operations, and `agentmesh.record_access(...)`. A policy rule with `host` blocks calls to anything off an allowlist. See [access.md](access.md).
 
 ### Memory & RAG
 

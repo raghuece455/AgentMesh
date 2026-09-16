@@ -48,7 +48,7 @@ from agentmesh.types import JsonObject
 ACTIONS = ("allow", "warn", "require_approval", "deny")
 MODES = ("enforce", "monitor")
 KINDS = ("tool", "llm", "agent", "any")
-MATCH_KEYS = ("kind", "name", "tool", "model", "provider", "agent", "service", "environment", "arguments", "input_regex")
+MATCH_KEYS = ("kind", "name", "tool", "model", "provider", "agent", "service", "environment", "host", "arguments", "input_regex")
 LIMITS: dict[str, str] = {
     "max_steps": "Tool, LLM, and agent calls in one trace",
     "max_llm_calls": "LLM calls in one trace",
@@ -326,6 +326,17 @@ class ActionContext:
     environment: str | None = None
     arguments: Any = None
     swarm_id: str | None = None
+    attributes: JsonObject = field(default_factory=dict)
+    _hosts: list[str] | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def hosts(self) -> list[str]:
+        """Hosts this call would reach, read from its arguments and attributes (computed once)."""
+        if self._hosts is None:
+            from agentmesh.access import call_hosts
+
+            self._hosts = call_hosts(self.arguments, self.attributes)
+        return self._hosts
 
     @property
     def target(self) -> str:
@@ -584,6 +595,9 @@ def matches(match: JsonObject, context: ActionContext) -> bool:
                 return False
         elif key in {"provider", "service", "environment"}:
             if not _glob(getattr(context, key), expected):
+                return False
+        elif key == "host":
+            if not any(_glob(host, expected) for host in context.hosts):
                 return False
         elif key == "arguments":
             if not _arguments_match(context.arguments, expected):

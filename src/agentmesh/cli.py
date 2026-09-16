@@ -74,6 +74,21 @@ def main() -> None:
     sessions_show = sessions_subcommands.add_parser("show", help="Show every trace in a session")
     sessions_show.add_argument("session_id")
 
+    access_parser = subcommands.add_parser("access", help="What agents reached: outbound hosts and the data they read")
+    access_subcommands = access_parser.add_subparsers(dest="access_command", required=True)
+    access_summary = access_subcommands.add_parser("summary", help="Destinations and resources, most used first")
+    access_summary.add_argument("--hours", type=float, help="Only the last N hours (marks destinations first seen in the window)")
+    access_summary.add_argument("--kind", choices=["network", "retrieval", "memory", "db", "file", "api", "other"])
+    access_summary.add_argument("--limit", type=int, default=50)
+    access_list = access_subcommands.add_parser("list", help="Individual accesses, newest first")
+    access_list.add_argument("--kind", choices=["network", "retrieval", "memory", "db", "file", "api", "other"])
+    access_list.add_argument("--target", help="Match a host or resource (substring)")
+    access_list.add_argument("--exact", action="store_true", help="Match --target exactly")
+    access_list.add_argument("--trace")
+    access_list.add_argument("--agent")
+    access_list.add_argument("--hours", type=float)
+    access_list.add_argument("--limit", type=int, default=50)
+
     swarms_parser = subcommands.add_parser("swarms", help="Inspect agent swarms: many agents working as one run")
     swarms_subcommands = swarms_parser.add_subparsers(dest="swarms_command", required=True)
     swarms_list = swarms_subcommands.add_parser("list", help="List recent swarms")
@@ -356,6 +371,17 @@ def main() -> None:
             if session is None:
                 raise SystemExit(f"Session not found: {args.session_id}")
             print(json.dumps(session, indent=2))
+    elif args.command == "access":
+        store = create_store(args.db)
+        since = None
+        if args.hours:
+            from datetime import UTC, datetime, timedelta
+
+            since = (datetime.now(UTC) - timedelta(hours=args.hours)).isoformat()
+        if args.access_command == "summary":
+            _print(store.access_summary(since=since, limit=args.limit, kind=args.kind))
+        else:
+            _print(store.list_access(limit=args.limit, kind=args.kind, target=args.target, trace_id=args.trace, agent=args.agent, since=since, exact=args.exact))
     elif args.command == "swarms":
         store = create_store(args.db)
         if args.swarms_command == "list":

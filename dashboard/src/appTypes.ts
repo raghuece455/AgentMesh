@@ -33,6 +33,7 @@ export type Section =
   | 'agents'
   | 'models'
   | 'tools'
+  | 'access'
   | 'memory'
   | 'prompts'
   | 'costs'

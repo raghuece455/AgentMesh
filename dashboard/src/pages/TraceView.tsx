@@ -6,6 +6,7 @@ import { SpanPanel } from '../components/trace/SpanPanel'
 import { TraceCompare } from '../components/trace/TraceCompare'
 import { TraceTimeline } from '../components/trace/TraceTimeline'
 import { Badge, StatusBadge } from '../components/ui/Badge'
+import { KindBadge } from '../components/access/KindBadge'
 import { Button } from '../components/ui/Button'
 import { Callout, Card, Skeleton } from '../components/ui/Card'
 import { CopyableId } from '../components/ui/Code'
@@ -14,7 +15,7 @@ import { Menu } from '../components/ui/Overlay'
 import { StatStrip } from '../components/ui/Stat'
 import { Tabs } from '../components/ui/Tabs'
 import { useShortcuts } from '../lib/shortcuts'
-import type { PolicyDecision, SpanRecord, TraceDetail, TraceSummary } from '../types'
+import type { AccessKind, PolicyDecision, SpanRecord, TraceDetail, TraceSummary } from '../types'
 import { formatDateTime, formatMoney, formatMs, formatNumber, numeric } from '../utils/format'
 import { flattenSpans, spanKind } from '../utils/traces'
 
@@ -101,6 +102,12 @@ export function TraceView({
     )
   }
 
+  // One row per destination: a trace often touches the same host many times.
+  const reached = Object.values((detail?.access ?? []).reduce<Record<string, { kind: AccessKind; target: string; detail: string | null; calls: number }>>((groups, record) => {
+    const key = `${record.kind}:${record.target}`
+    groups[key] = groups[key] ? { ...groups[key], calls: groups[key].calls + 1 } : { kind: record.kind, target: record.target, detail: record.detail, calls: 1 }
+    return groups
+  }, {})).slice(0, 24)
   const promptTokens = numeric(detail?.costs?.prompt_tokens)
   const completionTokens = numeric(detail?.costs?.completion_tokens)
   const events = detail?.events ?? []
@@ -178,6 +185,20 @@ export function TraceView({
         { label: 'Cost', value: numeric(trace.estimated_cost) ? formatMoney(trace.estimated_cost) : '-' },
         { label: 'Failed spans', value: formatNumber(counts.failed), tone: counts.failed ? 'danger' : undefined },
       ]} />
+
+      {(detail?.access ?? []).length > 0 && (
+        <Card title="Reached" description="Hosts called and data read in this run" icon={<Network />} flush>
+          <ul className="flex flex-wrap gap-x-4 gap-y-2 px-4 py-3">
+            {reached.map(item => (
+              <li key={`${item.kind}:${item.target}`} className="flex items-center gap-1.5 text-[13px]">
+                <KindBadge kind={item.kind} />
+                <span className="font-mono text-xs text-fg" title={item.detail ?? undefined}>{item.target}</span>
+                {item.calls > 1 && <span className="tabular text-xs text-fg-subtle">×{item.calls}</span>}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <InsightsCard key={trace.trace_id} traceId={trace.trace_id} insights={detail?.insights} scores={detail?.scores ?? []} spans={spans} onSelectSpan={onSelectSpan} />
 

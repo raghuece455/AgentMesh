@@ -182,6 +182,8 @@ jobs:
           curl -sf http://127.0.0.1:8795/api/guardrails/runtime > /dev/null
           curl -sf http://127.0.0.1:8795/api/halts > /dev/null
           curl -sf http://127.0.0.1:8795/api/swarms > /dev/null
+          curl -sf http://127.0.0.1:8795/api/access > /dev/null
+          curl -sf "http://127.0.0.1:8795/api/access/summary?hours=24" > /dev/null
           curl -sf -X POST "http://127.0.0.1:8795/api/swarms/check?enforce=false" > /dev/null
           curl -sf -X POST -H "Content-Type: application/json" -d '{"resourceSpans": []}' http://127.0.0.1:8795/v1/traces > /dev/null
           echo "All dashboard endpoints OK"

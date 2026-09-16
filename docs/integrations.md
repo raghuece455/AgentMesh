@@ -172,6 +172,7 @@ Wrapper spans that only aggregate usage (for example Vercel's outer `ai.generate
 | Environment | resource `deployment.environment.name` |
 | Errors | span status `ERROR`, `error.type`, `exception` events |
 | Scores | span events named `gen_ai.evaluation.result` (`gen_ai.evaluation.name`, `score.value`, `score.label`, `explanation`) |
+| Access | `url.full`, `http.url`, `server.address`, `net.peer.name`, `http.host`, `peer.service` (hosts), `db.system` / `db.namespace`, `file.path`, and `agentmesh.resource.access` span events. See [access.md](access.md) |
 | Swarm | `agentmesh.swarm.id` / `agentmesh.swarm.name` (resource or span; `swarm.id` also works), span links with `agentmesh.link.type` (`spawned_by`, `handoff`), and `agentmesh.agent.message` span events. See [swarms.md](swarms.md) |
 
 Token semantics follow the conventions: input tokens **include** cached tokens and output tokens
