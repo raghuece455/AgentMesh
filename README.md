@@ -27,7 +27,7 @@ Agent runs are hard to debug once prompts, tools, retrieval, retries, sub-agents
 - **TypeScript SDK** — `npm install agentmesh-sdk`: `observe()`, `trace()`, `score()`, `instrumentOpenAI()`, `instrumentAnthropic()`, and `runExperiment()` for Node.js agents. [TypeScript →](docs/typescript-sdk.md)
 - **Auto-instrumentation** — `instrument_openai()` and `instrument_anthropic()`: Chat Completions, Responses, Embeddings, Messages, streaming, tool calls, cache and reasoning tokens.
 - **Automatic insights** — first failure with its causal path, tool-call loops, repeated identical prompts, runaway context growth, prompt-cache hit rate, self-time and cost hotspots.
-- **Agent swarms** — many agents across traces and processes as one run: who started whom, who messaged whom, per-agent calls and cost, activity over time, failed agents and runaway fan-out, and one button to stop the whole swarm. Works over plain OpenTelemetry. [Swarms →](docs/swarms.md)
+- **Agent swarms** — many agents across traces and processes as one run: who started whom, who messaged whom, per-agent calls and cost, activity over time, failed agents and runaway fan-out, swarm-wide limits (agents, fan-out rate, spend) enforced across processes, and one button to stop the whole swarm. Works over plain OpenTelemetry. [Swarms →](docs/swarms.md)
 - **Sessions and users** — multi-turn conversations grouped by `gen_ai.conversation.id`, with every turn's input, output, and feedback.
 - **Scores and feedback** — thumbs up/down in the dashboard, `POST /api/scores`, SDK scores, and OTel `gen_ai.evaluation.result` events.
 - **Datasets and experiments** — turn traces into test cases with one click, run a new prompt or model over them, and compare item by item: what regressed, what improved, what it cost. Gate releases in CI with `agentmesh experiments run --fail-under`. [Evals →](docs/datasets-and-experiments.md)
@@ -175,7 +175,7 @@ with agentmesh.trace("research", spawned_by=task.context):
     agentmesh.send_message("writer", notes)
 ```
 
-The **Swarms** page draws the agent graph across traces (grouped by role for swarms of hundreds of agents), charts agents running over time, flags failed agents, runaway fan-out, deep nesting, and cost hotspots, and has a **Stop swarm** button that halts every agent in it. No SDK? Set the `agentmesh.swarm.id` resource attribute and add a span link to the spawning span. Try it offline: `python examples/agent_swarm.py`.
+The **Swarms** page draws the agent graph across traces (grouped by role for swarms of hundreds of agents), charts agents running over time, flags failed agents, runaway fan-out, deep nesting, and cost hotspots, and has a **Stop swarm** button that halts every agent in it. A policy can cap the swarm itself — total agents, agents running at once, agents started per minute, spend, tokens, runtime — counted across every process, and AgentMesh halts a swarm that goes past them. No SDK? Set the `agentmesh.swarm.id` resource attribute and add a span link to the spawning span. Try it offline: `python examples/agent_swarm.py`.
 
 ![Swarm view: activity over time, insights, and the agent graph](https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/swarm.png)
 

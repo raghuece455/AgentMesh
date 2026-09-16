@@ -830,12 +830,36 @@ export interface SwarmInsight {
   node_key: string | null
 }
 
+export interface SwarmLimit {
+  policy: string
+  policy_id: string | null
+  enforced: boolean
+  limit: string
+  label: string
+  max: number
+  used: number
+  breached: boolean
+}
+
+export interface SwarmUsage {
+  agents: number
+  concurrent_agents: number
+  spawn_rate_per_minute: number
+  cost_usd: number
+  tokens: number
+  duration_minutes: number
+  running_traces: number
+}
+
 export interface SwarmDetail {
   swarm_id: string
   name: string
   service_name: string | null
   environment: string | null
   is_demo: boolean
+  halt: HaltRecord | null
+  usage: SwarmUsage | Record<string, never>
+  limits: SwarmLimit[]
   first_seen_at: string
   last_seen_at: string
   traces: Array<{ trace_id: string; workflow_name: string | null; status: string; started_at: string; ended_at: string | null; duration_ms: number | null; service_name: string | null }>

@@ -55,6 +55,21 @@ approval:
 `,
   },
   {
+    id: 'swarm',
+    label: 'Cap a swarm',
+    text: `name: swarm-safety
+description: Limits for a whole swarm, counted across every process in it.
+mode: monitor              # watch first, then enforce
+swarm:
+  max_agents: 500          # agents started in one swarm
+  max_concurrent_agents: 200
+  max_spawn_rate_per_minute: 120
+  max_cost_usd: 50
+  max_duration_minutes: 30
+  # match: {service: research-*}   # only swarms from these services
+`,
+  },
+  {
     id: 'models',
     label: 'Approved models only',
     text: `name: approved-models
@@ -68,6 +83,15 @@ rules:
 `,
   },
 ]
+
+const SWARM_LIMIT_LABELS: Record<string, (value: number) => string> = {
+  max_agents: value => `${formatNumber(value)} agents`,
+  max_concurrent_agents: value => `${formatNumber(value)} at once`,
+  max_spawn_rate_per_minute: value => `${formatNumber(value)}/min`,
+  max_cost_usd: value => `$${value}`,
+  max_tokens: value => `${formatNumber(value)} tokens`,
+  max_duration_minutes: value => `${value} min`,
+}
 
 const LIMIT_LABELS: Record<string, (value: number) => string> = {
   max_steps: value => `${value} steps`,
@@ -326,6 +350,8 @@ function PolicyChecks({ policy }: { policy: PolicyRecord }) {
   const rules = Array.isArray(policy.spec.rules) ? (policy.spec.rules as Array<{ name?: string; action?: string }>) : []
   const actions = rules.reduce<Record<string, number>>((totals, rule) => ({ ...totals, [rule.action ?? '']: (totals[rule.action ?? ''] ?? 0) + 1 }), {})
   const limits = Object.entries(policy.limits)
+  const swarm = policy.spec.swarm && typeof policy.spec.swarm === 'object' ? policy.spec.swarm as Record<string, unknown> : {}
+  const swarmLimits = Object.entries(swarm).filter(([key, value]) => key !== 'match' && typeof value === 'number') as Array<[string, number]>
   return (
     <span className="flex flex-wrap gap-1">
       {actions.deny ? <Badge tone="danger">{actions.deny} deny</Badge> : null}
@@ -334,6 +360,7 @@ function PolicyChecks({ policy }: { policy: PolicyRecord }) {
       {actions.allow ? <Badge tone="success">{actions.allow} allow</Badge> : null}
       {limits.slice(0, 4).map(([key, value]) => <Badge key={key} outline title={key}>{LIMIT_LABELS[key]?.(value) ?? `${key} ${value}`}</Badge>)}
       {limits.length > 4 && <Badge outline>+{limits.length - 4}</Badge>}
+      {swarmLimits.map(([key, value]) => <Badge key={key} tone="violet" title={`swarm: ${key}`}>swarm {SWARM_LIMIT_LABELS[key]?.(value) ?? `${key} ${value}`}</Badge>)}
     </span>
   )
 }
@@ -519,6 +546,11 @@ function PolicyReference() {
           <ul className="space-y-0.5 font-mono text-xs text-fg-muted">
             {['max_repeated_calls', 'max_tool_calls', 'max_calls_per_tool', 'max_llm_calls', 'max_steps', 'max_cost_usd', 'max_tokens', 'max_duration_seconds', 'max_agent_depth', 'max_child_agents'].map(limit => <li key={limit}>{limit}</li>)}
           </ul>
+          <h4 className="mt-3 mb-1.5 text-xs font-semibold text-fg">Swarm limits, across processes</h4>
+          <ul className="space-y-0.5 font-mono text-xs text-fg-muted">
+            {['max_agents', 'max_concurrent_agents', 'max_spawn_rate_per_minute', 'max_cost_usd', 'max_tokens', 'max_duration_minutes'].map(limit => <li key={limit}>swarm.{limit}</li>)}
+          </ul>
+          <p className="mt-1 text-xs text-fg-subtle">Checked on the server every few seconds; a swarm that breaks one is halted.</p>
           <h4 className="mt-3 mb-1.5 text-xs font-semibold text-fg">Modes</h4>
           <p className="text-xs text-fg-muted"><span className="font-mono text-fg">monitor</span> records what would be blocked and blocks nothing. <span className="font-mono text-fg">enforce</span> blocks.</p>
         </div>
@@ -599,6 +631,8 @@ function decisionTone(decision: PolicyDecision): Tone {
 }
 
 function kindOf(kind: string): SpanKind {
+  if (kind === 'swarm')
+    return 'workflow'
   return kind === 'llm' || kind === 'tool' || kind === 'agent' ? kind : 'span'
 }
 

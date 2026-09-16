@@ -35,6 +35,7 @@ agentmesh dashboard
 | `agent_swarm.py` | A planner fans work out to 12 researchers in workers that share only a JSON context; they message a writer, who hands off to a reviewer. Shows one swarm across 13 traces. Offline, no API keys. |
 | `guardrails.py` | Block a production delete, break a tool loop, wait for approval, and halt a service with a policy. Offline, no API keys. |
 | `policies/production-safety.yaml` | A starter policy: loop and spend limits, approvals for refunds, approved models only |
+| `policies/swarm-safety.yaml` | Swarm-wide limits (agents, concurrency, spawn rate, spend, runtime) plus per-trace fan-out caps |
 | `datasets_experiments.py` | Save a trace as a test case, run two agent versions as experiments with `ExactMatch`, `Contains`, and `LLMJudge`, then compare. Offline, no API keys. |
 | `../sdks/typescript/examples/quickstart.mjs` | TypeScript: trace a Node.js agent with a session and scores (needs a running dashboard) |
 | `../sdks/typescript/examples/experiment.mjs` | TypeScript: run an experiment over a dataset stored in AgentMesh |

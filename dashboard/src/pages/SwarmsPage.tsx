@@ -1,11 +1,11 @@
-import { AlertTriangle, ArrowLeft, ArrowUpRight, Bot, CircleDollarSign, GitFork, Info, ListTree, MessagesSquare, Network, OctagonX, ScrollText, Users, Waypoints } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, ArrowUpRight, Bot, CircleDollarSign, Gauge, GitFork, Info, ListTree, MessagesSquare, Network, OctagonX, Play, ScrollText, Users, Waypoints } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Area, Bar, CartesianGrid, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { createHalt, getSwarm, listSwarms } from '../api'
+import { createHalt, getSwarm, listSwarms, releaseHalt } from '../api'
 import { EDGE_STYLE, SwarmGraph } from '../components/swarm/SwarmGraph'
 import { Badge, StatusBadge, StatusDot } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
-import { Callout, Card, EmptyState, KeyValue, PageHeader, Skeleton } from '../components/ui/Card'
+import { Callout, Card, EmptyState, KeyValue, Meter, PageHeader, Skeleton } from '../components/ui/Card'
 import { axisProps, ChartTooltip, gridProps } from '../components/ui/Chart'
 import { CodeBlock, CopyableId } from '../components/ui/Code'
 import { DataTable } from '../components/ui/DataTable'
@@ -14,7 +14,7 @@ import { Drawer, Toast } from '../components/ui/Overlay'
 import { StatCard, StatStrip } from '../components/ui/Stat'
 import { Segmented, Tabs } from '../components/ui/Tabs'
 import { cn } from '../lib/utils'
-import type { SwarmDetail, SwarmNode, SwarmSummaryRow } from '../types'
+import type { SwarmDetail, SwarmLimit, SwarmNode, SwarmSummaryRow } from '../types'
 import { errorText, formatDateTime, formatMoney, formatMs, formatNumber, formatRelative, formatTime, jsonPreview } from '../utils/format'
 
 /** Above this many agents the graph starts grouped by role; one card per agent stops being readable. */
@@ -148,6 +148,20 @@ function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; 
   }, [swarmId, refreshKey])
 
   const graphView = view ?? (detail && detail.summary.agents > ROLE_VIEW_THRESHOLD ? 'roles' : 'agents')
+  const reload = useCallback(() => { getSwarm(swarmId).then(setDetail).catch(caught => setNotice({ message: errorText(caught), tone: 'danger' })) }, [swarmId])
+  const release = useCallback(async () => {
+    const haltId = detail?.halt?.halt_id
+    if (!haltId)
+      return
+    try {
+      await releaseHalt(haltId)
+      setNotice({ message: 'Halt released. Agents in this swarm can run again.', tone: 'success' })
+      reload()
+    }
+    catch (caught) {
+      setNotice({ message: errorText(caught), tone: 'danger' })
+    }
+  }, [detail, reload])
   const nodesByKey = useMemo(() => new Map((detail?.nodes ?? []).map(node => [node.key, node])), [detail])
   const selectNode = useCallback((id: string) => setSelected(current => current === id ? null : id), [])
   const agents = useMemo(() => {
@@ -179,6 +193,12 @@ function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; 
   const selectedNode = selected ? nodesByKey.get(selected) : undefined
   const selectedRole = graphView === 'roles' && selected ? detail.roles.nodes.find(role => role.name === selected) : undefined
   const chart = detail.timeline.map(bucket => ({ ...bucket, label: formatTime(bucket.at) }))
+  const pickInsight = (nodeKey: string) => {
+    // Too many agents to draw one by one: show the agent in the table instead.
+    if (tooManyForAgentGraph) { setTab('agents'); setQuery('') }
+    else { setTab('graph'); setView('agents') }
+    setSelected(nodeKey)
+  }
 
   return (
     <>
@@ -198,11 +218,23 @@ function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; 
               <span>{formatDateTime(summary.started_at)}</span>
             </div>
           </div>
-          <Button variant="danger" icon={<OctagonX />} onClick={() => setStopping(true)}>Stop swarm</Button>
+          {/* When the swarm is halted the banner below carries the Release action. */}
+          {!detail.halt && <Button variant="danger" icon={<OctagonX />} onClick={() => setStopping(true)}>Stop swarm</Button>}
         </div>
       </div>
       <Toast message={notice.message} tone={notice.tone} onDone={clearNotice} />
       <StopSwarmDrawer open={stopping} detail={detail} onClose={() => setStopping(false)} onStopped={() => { setStopping(false); setNotice({ message: `Stopped ${detail.name}. Agents in it fail their next call until the halt is released on Guardrails.`, tone: 'success' }) }} />
+
+      {detail.halt && (
+        <Callout
+          tone="danger"
+          icon={<OctagonX />}
+          title={detail.halt.created_by?.startsWith('policy:') ? `Stopped by policy ${detail.halt.created_by.slice(7)}` : 'This swarm is stopped'}
+          actions={<Button icon={<Play />} onClick={() => void release()}>Release halt</Button>}
+        >
+          {detail.halt.reason ?? 'Every agent in this swarm fails its next call until the halt is released.'}
+        </Callout>
+      )}
 
       {(summary.truncated || summary.nodes_truncated) && (
         <Callout tone="warning" title="This swarm is larger than one view shows">Only the first {formatNumber(summary.spans)} spans are analyzed. Totals below cover those spans.</Callout>
@@ -221,7 +253,7 @@ function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; 
         { label: 'Duration', value: formatMs(summary.duration_ms) },
       ]} />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
         <Card title="Activity" description="Agents running and started over the swarm's lifetime" icon={<Waypoints />}>
           {chart.length === 0
             ? <EmptyState title="No timing data" />
@@ -247,38 +279,14 @@ function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; 
                 </div>
               )}
         </Card>
-        <Card title="Insights" icon={<Info />} flush>
-          {detail.insights.length === 0
-            ? <EmptyState title="Nothing unusual" detail="No failed agents, runaway fan-out, deep nesting, or cost hotspots." />
-            : (
-                <ul className="divide-y divide-line">
-                  {detail.insights.map(insight => (
-                    <li key={insight.kind}>
-                      <button
-                        className="flex w-full items-start gap-2.5 px-4 py-3 text-left hover:bg-surface-2/60 disabled:cursor-default disabled:hover:bg-transparent"
-                        disabled={!insight.node_key}
-                        onClick={() => {
-                          if (!insight.node_key)
-                            return
-                          // Too many agents to draw one by one: show the agent in the table instead.
-                          if (tooManyForAgentGraph) { setTab('agents'); setQuery('') }
-                          else { setTab('graph'); setView('agents') }
-                          setSelected(insight.node_key)
-                        }}
-                      >
-                        <span className={cn('mt-0.5 [&_svg]:size-4', insight.severity === 'danger' ? 'text-danger-text' : insight.severity === 'warning' ? 'text-warning-text' : 'text-info-text')}>
-                          {insight.severity === 'info' ? <Info /> : <AlertTriangle />}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-[13px] font-medium text-fg">{insight.title}</span>
-                          <span className="mt-0.5 line-clamp-2 block text-xs text-fg-muted">{insight.detail}</span>
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-        </Card>
+        {/* Limits take the space beside the chart when a policy sets them; insights then sit by the graph. */}
+        {detail.limits.length > 0
+          ? (
+              <Card title="Swarm limits" description="Counted across every process in the swarm" icon={<Gauge />} flush>
+                <SwarmLimits limits={detail.limits} />
+              </Card>
+            )
+          : <SwarmInsights insights={detail.insights} onPick={pickInsight} />}
       </div>
 
       <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
@@ -393,7 +401,8 @@ function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; 
           </div>
         </Card>
 
-        <div className="xl:sticky xl:top-20">
+        <div className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-20">
+          {detail.limits.length > 0 && <SwarmInsights insights={detail.insights} onPick={pickInsight} />}
           {selectedNode
             ? <AgentPanel node={selectedNode} parent={nodesByKey.get(selectedNode.parent_key ?? '')} onSelect={selectNode} onTrace={onTrace} />
             : selectedRole
@@ -419,6 +428,73 @@ function SwarmView({ swarmId, refreshKey, onBack, onTrace }: { swarmId: string; 
       </div>
     </>
   )
+}
+
+function SwarmInsights({ insights, onPick }: { insights: SwarmDetail['insights']; onPick: (nodeKey: string) => void }) {
+  return (
+    <Card title="Insights" icon={<Info />} flush>
+      {insights.length === 0
+        ? <EmptyState title="Nothing unusual" detail="No failed agents, runaway fan-out, deep nesting, or cost hotspots." />
+        : (
+            <ul className="divide-y divide-line">
+              {insights.map(insight => (
+                <li key={insight.kind}>
+                  <button
+                    className="flex w-full items-start gap-2.5 px-4 py-3 text-left hover:bg-surface-2/60 disabled:cursor-default disabled:hover:bg-transparent"
+                    disabled={!insight.node_key}
+                    onClick={() => insight.node_key && onPick(insight.node_key)}
+                  >
+                    <span className={cn('mt-0.5 [&_svg]:size-4', insight.severity === 'danger' ? 'text-danger-text' : insight.severity === 'warning' ? 'text-warning-text' : 'text-info-text')}>
+                      {insight.severity === 'info' ? <Info /> : <AlertTriangle />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-medium text-fg">{insight.title}</span>
+                      <span className="mt-0.5 line-clamp-2 block text-xs text-fg-muted">{insight.detail}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+    </Card>
+  )
+}
+
+/** Usage against every swarm limit that applies, worst first. */
+function SwarmLimits({ limits }: { limits: SwarmLimit[] }) {
+  return (
+    <ul className="divide-y divide-line">
+      {limits.map((limit) => {
+        const share = limit.max ? Math.min(limit.used / limit.max, 1) : 0
+        return (
+          <li key={`${limit.policy}-${limit.limit}`} className="px-4 py-2.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="truncate text-[13px] text-fg" title={limit.label}>{limit.label}</span>
+              <span className={cn('tabular shrink-0 text-xs', limit.breached ? 'font-semibold text-danger-text' : 'text-fg-muted')}>
+                {formatLimit(limit.limit, limit.used)} / {formatLimit(limit.limit, limit.max)}
+              </span>
+            </div>
+            <Meter className="mt-1.5" value={share * 100} max={100} tone={limit.breached ? 'danger' : share > 0.7 ? 'warning' : 'accent'} />
+            <div className="mt-1 flex items-center gap-1.5 text-[11px] text-fg-subtle">
+              <span className="truncate">{limit.policy}</span>
+              {!limit.enforced && <Badge outline>monitor</Badge>}
+              {limit.breached && limit.enforced && <Badge tone="danger">swarm halted</Badge>}
+            </div>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function formatLimit(limit: string, value: number): string {
+  if (limit === 'max_cost_usd')
+    return formatMoney(value)
+  if (limit === 'max_duration_minutes')
+    return `${formatNumber(Math.round(value))}m`
+  if (limit === 'max_spawn_rate_per_minute')
+    return `${formatNumber(value)}/min`
+  return formatNumber(value)
 }
 
 function AgentPanel({ node, parent, onSelect, onTrace }: { node: SwarmNode; parent?: SwarmNode; onSelect: (key: string) => void; onTrace: (traceId: string, spanId?: string) => void }) {

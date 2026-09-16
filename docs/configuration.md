@@ -87,6 +87,7 @@ See [alerts.md](alerts.md).
 |---|---|---|
 | `AGENTMESH_SWARM_ID` | _(unset)_ | Put every trace this process starts into this swarm (for workers launched per swarm) |
 | `AGENTMESH_SWARM_NAME` | _(unset)_ | Display name for that swarm |
+| `AGENTMESH_SWARM_LIMIT_INTERVAL_SECONDS` | `15` | How often the server checks swarm-wide limits; `0` turns the scheduler off (use `agentmesh swarms check`) |
 
 See [swarms.md](swarms.md).
 

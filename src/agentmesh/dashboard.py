@@ -186,11 +186,17 @@ def create_app(db_path: str | Path | None = None):
 
     @asynccontextmanager
     async def lifespan(_app: object):
+        from agentmesh.swarm_limits import SwarmLimitScheduler
+        from agentmesh.swarm_limits import scheduler_interval as swarm_limit_interval
+
         scheduler = AlertScheduler(store, scheduler_interval())
         scheduler.start()
+        swarm_limits = SwarmLimitScheduler(store, swarm_limit_interval())
+        swarm_limits.start()
         try:
             yield
         finally:
+            swarm_limits.stop()
             scheduler.stop()
 
     app = FastAPI(
@@ -450,6 +456,12 @@ def create_app(db_path: str | Path | None = None):
     ) -> list[dict[str, object]]:
         since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat() if hours else None
         return store.list_swarms(limit=limit, offset=offset, query=q, since=since)
+
+    @app.post("/api/swarms/check", dependencies=[Depends(require_auth)])
+    async def check_swarm_limits(enforce: bool = True) -> dict[str, object]:
+        """Evaluate swarm-wide limits now (the server also does this on a schedule)."""
+        breaches = await asyncio.to_thread(store.check_swarm_limits, None, enforce)
+        return {"breaches": breaches, "halted": [item["swarm_id"] for item in breaches if item["halted"]]}
 
     @app.get("/api/swarms/{swarm_id}", dependencies=[Depends(require_auth)])
     async def swarm_detail(swarm_id: str) -> dict[str, object]:
