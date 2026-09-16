@@ -503,6 +503,10 @@ def _seed_guardrails(store: SQLiteStore) -> str:
     finally:
         client.shutdown()
         sdk._client = previous
+    # Requests still waiting on a person, so the Approvals page shows a real review queue:
+    # the demo policy's refunds-need-approval rule is what put them there.
+    store.create_approval(trace_id, "billing_agent", "issue_refund", {"order_id": "A-1044", "amount_usd": 249.0, "reason": "late delivery"})
+    store.create_approval(trace_id, "support_agent", "issue_refund", {"order_id": "A-1001", "amount_usd": 18.5, "reason": "shipping fee, customer asked twice"})
     halt = store.create_halt({"scope": "agent", "value": "research_swarm", "reason": "Fan-out spiked to 40 sub-agents in two minutes", "created_by": "demo"})
     store.release_halt(halt["halt_id"], "demo")
     return trace_id

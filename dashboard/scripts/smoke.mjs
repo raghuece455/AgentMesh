@@ -83,6 +83,8 @@ async function main() {
     await clickButtonByText(client, 'Simulate on recent traces')
     await waitForText(client, ['If this policy had been enforced', 'Traces affected'])
     await pressKey(client, 'Escape')
+    await clickButtonByText(client, 'Approvals')
+    await waitForText(client, ['Risky tool calls wait here', 'issue_refund', 'pending', 'Approve'])
     await clickButtonByText(client, 'Costs')
     await waitForText(client, ['Monthly budget', 'Spend over time', 'By model'])
     await clickButtonByText(client, 'Replay')
