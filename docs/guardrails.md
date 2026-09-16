@@ -193,6 +193,7 @@ Stop agents now, from the dashboard (**Stop agents**), the CLI, or the API:
 ```bash
 agentmesh halt create --service support-bot --reason "Refund loop in production"
 agentmesh halt create --agent research_swarm
+agentmesh halt create --swarm swarm_8c1f04e2a9b3d756      # every agent in one swarm, see swarms.md
 agentmesh halt create --trace 4bf92f3577b34da6a3ce929d0e0e4736
 agentmesh halt create --all
 agentmesh halt list
@@ -272,7 +273,7 @@ agentmesh policy show <name>
 agentmesh policy enable <name> | disable <name> | remove <name>
 agentmesh policy simulate <file-or-name> [--hours 24] [--limit 200]
 agentmesh policy decisions [--action blocked|would_block|require_approval|warn] [--trace <id>]
-agentmesh halt create (--all | --service NAME | --agent NAME | --trace ID) [--reason TEXT]
+agentmesh halt create (--all | --swarm ID | --service NAME | --agent NAME | --trace ID) [--reason TEXT]
 agentmesh halt list [--all]
 agentmesh halt release <halt_id>
 ```
@@ -289,7 +290,7 @@ agentmesh halt release <halt_id>
 | `GET` | `/api/policy-decisions` | Decisions, filtered by `action`, `trace_id`, `hours`, `limit` |
 | `GET` | `/api/guardrails/summary` | Counts for the last `hours` (default 24) |
 | `GET` | `/api/guardrails/runtime` | Enabled policies and active halts, polled by SDKs |
-| `GET` / `POST` | `/api/halts` | List (`?active=false` for history) or create `{"scope": "service", "value": "support-bot", "reason": "..."}` |
+| `GET` / `POST` | `/api/halts` | List (`?active=false` for history) or create `{"scope": "service", "value": "support-bot", "reason": "..."}`; scopes: `all`, `swarm`, `service`, `agent`, `trace` |
 | `POST` | `/api/halts/{halt_id}/release` | Lift a halt |
 | `POST` / `GET` | `/api/approvals`, `/api/approvals/{approval_id}` | Request an approval and poll it (used by SDKs) |
 

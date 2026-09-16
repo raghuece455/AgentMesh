@@ -55,6 +55,7 @@ def _seed(store: SQLiteStore, database: str, reset: bool, reset_mode: str) -> Js
     recorder = TraceRecorder(store, logger=_quiet_logger())
     # Experiments first, so their traces sort below the headline demo traces.
     experiments = _seed_support_experiments(store)
+    swarm_traces = _seed_swarms(store)
     guarded_trace = _seed_guardrails(store)
     traces = [
         _seed_research_pipeline(store, recorder),
@@ -67,6 +68,7 @@ def _seed(store: SQLiteStore, database: str, reset: bool, reset_mode: str) -> Js
     session_traces = _seed_otel_support_session(store)
     traces.extend(session_traces)
     traces.append(guarded_trace)
+    traces.extend(swarm_traces)
     store.add_trace_to_dataset("support-answers", session_traces[1], metadata={"note": "approved answer from production"})
     alerts = _seed_alert_rules(store)
     store.close()
@@ -258,6 +260,132 @@ def _seed_support_experiments(store: SQLiteStore) -> list[str]:
         sdk._client.shutdown()
         sdk._client = previous
     return [run.experiment_id for run in runs]
+
+
+def _seed_swarms(store: SQLiteStore) -> list[str]:
+    """Two agent swarms, sent the way distributed OpenTelemetry apps send them.
+
+    * "market research": an orchestrator trace and six worker traces in other processes, joined by
+      span links, with nested fact checkers, a failed researcher, messages, and a handoff.
+    * "web crawl": one coordinator starting 160 crawler agents, some still running, a few failed:
+      large enough that the Swarms page opens it grouped by role.
+    """
+    import secrets
+    from datetime import UTC, datetime, timedelta
+
+    from agentmesh.ingest import SpanData
+
+    def clock(base: datetime):
+        return lambda seconds: (base + timedelta(seconds=seconds)).isoformat(timespec="microseconds")
+
+    def span(trace_id: str, name: str, start: float, end: float | None, at, *, parent: str | None = None, attributes=None, error: str | None = None, events=None, links=None, resource=None, span_id=None) -> SpanData:
+        return SpanData(
+            trace_id=trace_id,
+            span_id=span_id or secrets.token_hex(8),
+            parent_span_id=parent,
+            name=name,
+            start_time=at(start),
+            end_time=at(end) if end is not None else None,
+            status="error" if error else ("ok" if end is not None else "unset"),
+            status_message=error,
+            attributes={**(attributes or {}), **({"error.type": "ToolError"} if error else {})},
+            events=events or [],
+            links=links or [],
+            resource=resource or {},
+        )
+
+    def agent_attrs(name: str) -> dict:
+        return {"gen_ai.operation.name": "invoke_agent", "gen_ai.agent.name": name}
+
+    def llm_attrs(model: str, tokens_in: int, tokens_out: int, cost: float) -> dict:
+        return {
+            "gen_ai.operation.name": "chat",
+            "gen_ai.provider.name": "anthropic" if model.startswith("claude") else "openai",
+            "gen_ai.request.model": model,
+            "gen_ai.usage.input_tokens": tokens_in,
+            "gen_ai.usage.output_tokens": tokens_out,
+            "agentmesh.cost_usd": cost,
+        }
+
+    def tool_attrs(name: str, arguments: str) -> dict:
+        return {"gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": name, "gen_ai.tool.call.arguments": arguments}
+
+    def message(to: str, content: str, at, seconds: float, kind: str = "message") -> dict:
+        return {"name": "agentmesh.agent.message", "time": at(seconds), "attributes": {"agentmesh.message.to": to, "agentmesh.message.kind": kind, "agentmesh.message.content": content}}
+
+    trace_ids: list[str] = []
+
+    # -- market research: seven traces joined by span links ----------------------------------
+    swarm_id = f"swarm_{secrets.token_hex(8)}"
+    resource = {"service.name": "research-swarm", "deployment.environment.name": "demo", "agentmesh.swarm.id": swarm_id, "agentmesh.swarm.name": "market research"}
+    at = clock(datetime.now(UTC) - timedelta(minutes=48))
+    orchestrator = secrets.token_hex(16)
+    trace_ids.append(orchestrator)
+    root = secrets.token_hex(8)
+    planner = secrets.token_hex(8)
+    writer = secrets.token_hex(8)
+    reviewer = secrets.token_hex(8)
+    spans = [
+        span(orchestrator, "market research", 0, 640, at, span_id=root, attributes={"input.value": "Size the 2027 market for liquid-cooled GPU racks", "output.value": "Report approved: $4.1B TAM, 38% CAGR", "tag.tags": ["demo", "swarm"]}, resource=resource),
+        span(orchestrator, "invoke_agent planner", 2, 300, at, parent=root, span_id=planner, attributes=agent_attrs("planner"), resource=resource),
+        span(orchestrator, "chat claude-sonnet-5", 3, 9, at, parent=planner, attributes=llm_attrs("claude-sonnet-5", 2_400, 620, 0.0165), resource=resource),
+        span(orchestrator, "invoke_agent writer", 305, 560, at, parent=root, span_id=writer, attributes=agent_attrs("writer"), events=[message("reviewer", "Draft report ready for review", at, 548, "handoff")], resource=resource),
+        span(orchestrator, "chat claude-sonnet-5", 310, 380, at, parent=writer, attributes=llm_attrs("claude-sonnet-5", 18_500, 3_900, 0.114), resource=resource),
+        span(orchestrator, "chat claude-sonnet-5", 390, 540, at, parent=writer, attributes=llm_attrs("claude-sonnet-5", 26_000, 5_200, 0.156), resource=resource),
+        span(orchestrator, "invoke_agent reviewer", 562, 636, at, parent=root, span_id=reviewer, attributes=agent_attrs("reviewer"), resource=resource),
+        span(orchestrator, "chat gpt-5", 565, 630, at, parent=reviewer, attributes=llm_attrs("gpt-5", 31_000, 900, 0.0478), resource=resource),
+    ]
+    store.ingest_spans(spans, source="otlp")
+    topics = ["hyperscaler capex", "cooling vendors", "power constraints", "chip supply", "pricing trends", "regulation"]
+    for index, topic in enumerate(topics):
+        worker_trace = secrets.token_hex(16)
+        worker_resource = {"service.name": "research-worker", "deployment.environment.name": "demo"}  # joins through the link
+        worker_root = secrets.token_hex(8)
+        researcher = secrets.token_hex(8)
+        start = 12 + index * 14
+        failed = index == 3
+        end = start + (95 if failed else 150 + index * 12)
+        worker = [
+            span(worker_trace, f"research {topic}", start, end + 2, at, span_id=worker_root, links=[{"trace_id": orchestrator, "span_id": planner, "attributes": {"agentmesh.link.type": "spawned_by"}}], error="Researcher gave up" if failed else None, resource=worker_resource),
+            span(worker_trace, "invoke_agent researcher", start + 1, end, at, parent=worker_root, span_id=researcher, attributes=agent_attrs("researcher"), error="web_search failed 3 times: 429 rate limited" if failed else None, events=[] if failed else [message("writer", f"Findings on {topic}: 4 sources, confidence high", at, end - 3)], resource=worker_resource),
+            span(worker_trace, "chat gpt-4.1-mini", start + 2, start + 12, at, parent=researcher, attributes=llm_attrs("gpt-4.1-mini", 3_200, 700, 0.0024), resource=worker_resource),
+        ]
+        for call in range(3 if failed else 2):
+            worker.append(span(worker_trace, "execute_tool web_search", start + 14 + call * 18, start + 26 + call * 18, at, parent=researcher, attributes=tool_attrs("web_search", f'{{"query": "{topic} 2027"}}'), error="429 rate limited" if failed else None, resource=worker_resource))
+        if not failed:
+            worker.append(span(worker_trace, "chat gpt-4.1", start + 60, end - 5, at, parent=researcher, attributes=llm_attrs("gpt-4.1", 14_000 + index * 900, 1_800, 0.0424 + index * 0.002), resource=worker_resource))
+        if index in {1, 4}:
+            for check in range(3):
+                checker = secrets.token_hex(8)
+                worker.append(span(worker_trace, "invoke_agent fact_checker", start + 70 + check * 8, start + 110 + check * 8, at, parent=researcher, span_id=checker, attributes=agent_attrs("fact_checker"), resource=worker_resource))
+                worker.append(span(worker_trace, "execute_tool verify_source", start + 72 + check * 8, start + 100 + check * 8, at, parent=checker, attributes=tool_attrs("verify_source", f'{{"claim": {check}}}'), resource=worker_resource))
+        store.ingest_spans(worker, source="otlp")
+
+    # -- web crawl: one trace, 160 crawler agents, still running -------------------------------
+    crawl_id = f"swarm_{secrets.token_hex(8)}"
+    crawl_resource = {"service.name": "crawler-fleet", "deployment.environment.name": "demo", "agentmesh.swarm.id": crawl_id, "agentmesh.swarm.name": "web crawl"}
+    at = clock(datetime.now(UTC) - timedelta(minutes=9))
+    crawl_trace = secrets.token_hex(16)
+    trace_ids.append(crawl_trace)
+    crawl_root = secrets.token_hex(8)
+    coordinator = secrets.token_hex(8)
+    crawl = [
+        span(crawl_trace, "web crawl", 0, None, at, span_id=crawl_root, attributes={"input.value": "Crawl 160 competitor pricing pages", "tag.tags": ["demo", "swarm"]}, resource=crawl_resource),
+        span(crawl_trace, "invoke_agent coordinator", 1, None, at, parent=crawl_root, span_id=coordinator, attributes=agent_attrs("coordinator"), resource=crawl_resource),
+        span(crawl_trace, "chat gpt-4.1-mini", 2, 6, at, parent=coordinator, attributes=llm_attrs("gpt-4.1-mini", 1_800, 900, 0.0011), resource=crawl_resource),
+    ]
+    for index in range(160):
+        crawler = secrets.token_hex(8)
+        start = 8 + index * 2.8
+        running = index >= 145
+        failed = index % 13 == 7
+        end = None if running else start + 20 + (index % 9) * 3
+        crawl.append(span(crawl_trace, "invoke_agent crawler", start, end, at, parent=coordinator, span_id=crawler, attributes=agent_attrs("crawler"), error="fetch_page: 403 Forbidden" if failed and not running else None, resource=crawl_resource))
+        crawl.append(span(crawl_trace, "execute_tool fetch_page", start + 1, (start + 12) if end is not None else None, at, parent=crawler, attributes=tool_attrs("fetch_page", f'{{"url": "https://example.com/pricing/{index}"}}'), error="403 Forbidden" if failed and not running else None, resource=crawl_resource))
+        if end is not None and not failed:
+            crawl.append(span(crawl_trace, "chat gpt-4.1-mini", start + 13, end - 1, at, parent=crawler, attributes=llm_attrs("gpt-4.1-mini", 2_600, 240, 0.0014), resource=crawl_resource))
+    store.ingest_spans(crawl, source="otlp")
+    return trace_ids
 
 
 DEMO_POLICIES = [

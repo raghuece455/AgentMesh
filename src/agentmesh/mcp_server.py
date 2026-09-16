@@ -232,6 +232,21 @@ class AgentMeshMCPServer:
             annotations=read_only,
         )
         self._tool(
+            "list_swarms",
+            "Agent swarms (many agents working as one run, often across traces): status, agent count, failed agents, calls, tokens, and cost.",
+            {"limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}, "query": {"type": "string", "description": "Match swarm id, name, or service"}},
+            lambda args: self._require("list_swarms")(limit=int(args.get("limit", 20)), query=args.get("query")),
+            annotations=read_only,
+        )
+        self._tool(
+            "get_swarm",
+            "One swarm: summary (agents, depth, fan-out, cost, errors), roles with their spawn/message edges, and insights such as failed agents or runaway fan-out. Use get_trace on an agent's trace_id for details.",
+            {"swarm_id": {"type": "string"}, "include_agents": {"type": "boolean", "default": False, "description": "Also return up to 200 individual agents"}},
+            self._get_swarm,
+            required=["swarm_id"],
+            annotations=read_only,
+        )
+        self._tool(
             "add_score",
             "Attach a score or feedback to a trace (e.g. after reviewing it): numeric value, boolean, or label, plus a comment.",
             {
@@ -273,6 +288,18 @@ class AgentMeshMCPServer:
         if function is None:
             raise _ToolError(f"The configured store does not support {method}; use an AgentMesh SQLite or PostgreSQL store.")
         return function
+
+    def _get_swarm(self, args: JsonObject) -> JsonObject:
+        detail = self._require("get_swarm")(_required(args, "swarm_id"))
+        if detail is None:
+            raise _ToolError(f"Swarm not found: {args['swarm_id']}")
+        result = {key: detail[key] for key in ("swarm_id", "name", "service_name", "summary", "roles", "insights")}
+        if args.get("include_agents"):
+            result["agents"] = [
+                {key: node[key] for key in ("key", "name", "kind", "status", "trace_id", "depth", "children", "llm_calls", "tool_calls", "cost", "error_message")}
+                for node in detail["nodes"][:200]
+            ]
+        return result
 
     def _list_traces(self, args: JsonObject) -> JsonObject:
         filters = {

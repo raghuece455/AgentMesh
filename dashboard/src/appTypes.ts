@@ -25,6 +25,7 @@ export type Section =
   | 'overview'
   | 'traces'
   | 'sessions'
+  | 'swarms'
   | 'datasets'
   | 'alerts'
   | 'connect'

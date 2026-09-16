@@ -333,6 +333,7 @@ class Guardrails:
             if (
                 scope == "all"
                 or (scope == "trace" and value == context.trace_id)
+                or (scope == "swarm" and context.swarm_id is not None and value == context.swarm_id)
                 or (scope == "agent" and context.agent is not None and value in {context.agent, short_name(context.agent)})
                 or (scope == "agent" and context.kind == "agent" and value in {context.name, short_name(context.name)})
                 or (scope == "service" and context.service is not None and value == context.service)

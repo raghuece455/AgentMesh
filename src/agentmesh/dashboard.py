@@ -441,6 +441,24 @@ def create_app(db_path: str | Path | None = None):
     ) -> list[dict[str, object]]:
         return store.list_sessions(limit=limit, user_id=user_id, offset=offset) if hasattr(store, "list_sessions") else []
 
+    @app.get("/api/swarms", dependencies=[Depends(require_auth)])
+    def swarms(
+        limit: int = Query(50, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        q: str | None = None,
+        hours: int | None = Query(None, ge=1),
+    ) -> list[dict[str, object]]:
+        since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat() if hours else None
+        return store.list_swarms(limit=limit, offset=offset, query=q, since=since)
+
+    @app.get("/api/swarms/{swarm_id}", dependencies=[Depends(require_auth)])
+    async def swarm_detail(swarm_id: str) -> dict[str, object]:
+        """A swarm's agents, spawn/message/handoff edges, roles, activity over time, and insights."""
+        item = await asyncio.to_thread(store.get_swarm, swarm_id)
+        if item is None:
+            raise not_found("swarm", swarm_id)
+        return item
+
     @app.get("/api/sessions/{session_id}", dependencies=[Depends(require_auth)])
     def session(session_id: str) -> dict[str, object]:
         item = store.get_session(session_id) if hasattr(store, "get_session") else None

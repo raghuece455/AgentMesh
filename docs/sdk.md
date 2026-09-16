@@ -146,6 +146,20 @@ closed. Sync and async clients are both supported. `uninstrument_openai()` /
 
 ---
 
+## Agent swarms
+
+```python
+with agentmesh.swarm("market research"):                 # spans inside belong to the swarm
+    context = agentmesh.swarm_context()                  # hand to workers in other processes
+
+with agentmesh.trace("worker", spawned_by=context):     # in the worker: joins the swarm, links to the spawner
+    agentmesh.send_message("writer", notes)              # or agentmesh.handoff("reviewer", draft)
+```
+
+`Span.add_link(trace_id, span_id, link_type)` adds any other span link. `AGENTMESH_SWARM_ID` / `AGENTMESH_SWARM_NAME` put every trace a process starts into one swarm. See [swarms.md](swarms.md).
+
+---
+
 ## Guardrails
 
 Tool, LLM, and agent spans are checked against guardrail policies and halts before they run. A

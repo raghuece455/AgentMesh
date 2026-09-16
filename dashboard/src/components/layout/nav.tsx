@@ -10,6 +10,7 @@ import {
   GitBranch,
   LayoutDashboard,
   MessagesSquare,
+  Network,
   Plug,
   RotateCcw,
   Settings,
@@ -45,6 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'traces', label: 'Traces', description: 'Every agent run as a searchable span tree', icon: <Waypoints /> },
       { id: 'sessions', label: 'Sessions', description: 'Multi-turn conversations, turn by turn', icon: <MessagesSquare /> },
+      { id: 'swarms', label: 'Swarms', description: 'Many agents working as one run, across traces', icon: <Network /> },
       { id: 'agents', label: 'Agents', description: 'Performance and cost per agent', icon: <Bot /> },
       { id: 'workflows', label: 'Workflows', description: 'Execution graphs for orchestrated runs', icon: <GitBranch /> },
     ],

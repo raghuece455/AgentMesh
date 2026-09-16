@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, GitCompare, ListTree, MessagesSquare, MoreHorizontal, OctagonX, RotateCcw, ScrollText, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Download, Eye, GitCompare, ListTree, MessagesSquare, MoreHorizontal, Network, OctagonX, RotateCcw, ScrollText, ShieldCheck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { AddToDataset } from '../components/trace/AddToDataset'
 import { InsightsCard } from '../components/trace/InsightsCard'
@@ -33,6 +33,7 @@ export function TraceView({
   onOpenTrace,
   onValidate,
   onOpenSession,
+  onOpenSwarm,
   onNotify,
 }: {
   detail: TraceDetail | null
@@ -50,6 +51,7 @@ export function TraceView({
   onOpenTrace: (traceId: string) => void
   onValidate: (traceId: string) => void
   onOpenSession: (sessionId: string) => void
+  onOpenSwarm: (swarmId: string) => void
   onNotify: (message: string, tone?: 'neutral' | 'danger' | 'success') => void
 }) {
   const [tab, setTab] = useState<'timeline' | 'events'>('timeline')
@@ -135,6 +137,11 @@ export function TraceView({
                 </button>
               )}
               {trace.user_id && <span>user <span className="text-fg">{trace.user_id}</span></span>}
+              {(detail?.swarms ?? []).map(item => (
+                <button key={item.swarm_id} className="inline-flex items-center gap-1 text-accent-text hover:underline" onClick={() => onOpenSwarm(item.swarm_id)}>
+                  <Network className="size-3.5" />{item.name}
+                </button>
+              ))}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">

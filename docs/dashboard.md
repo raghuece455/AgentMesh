@@ -34,7 +34,7 @@ This populates the database with a set of pre-built traces covering successful r
 
 ## Layout and Navigation
 
-- **Sidebar** groups pages by job: *Observe* (Traces, Sessions, Agents, Workflows), *Evaluate* (Datasets, Evaluations, Prompts), *Monitor* (Alerts, Costs, Models, Tools, Memory & RAG), and *Operate* (Guardrails, Approvals, Replay). Badges show firing alerts, active halts, and pending approvals. Collapse it to icons with **Collapse**.
+- **Sidebar** groups pages by job: *Observe* (Traces, Sessions, Swarms, Agents, Workflows), *Evaluate* (Datasets, Evaluations, Prompts), *Monitor* (Alerts, Costs, Models, Tools, Memory & RAG), and *Operate* (Guardrails, Approvals, Replay). Badges show firing alerts, active halts, and pending approvals. Collapse it to icons with **Collapse**.
 - **Time range** (1h, 24h, 7d, 30d, All) and **data scope** (all data, real runs, demo only) in the top bar apply to every page. The range is kept in the address bar as `&range=7d`.
 - **Search** with **Ctrl K** (**⌘ K** on macOS) or **/**: jump to any page, find a trace by name, id, status, error, model, or session, or switch the theme.
 - **Keyboard shortcuts** — press **?** for the full list. **g** then a letter goes to a page (**g t** Traces, **g s** Sessions, **g r** Guardrails, **g c** Costs, ...). In a trace, **j** / **k** move between spans, **[** / **]** open the previous or next trace, **c** opens Compare, and **Esc** returns to the list.
@@ -76,6 +76,20 @@ Opening a trace shows:
 - **Span panel** — the selected span's overview (tokens split into input, output, cached, and reasoning; cost; model settings), **Input** and **Output** rendered as a chat conversation when they are messages, plus **Model**, **Tool**, **Retrieval**, **Memory**, **Error**, and **Raw** tabs when the span has that data, and **Replay from this span**
 
 A failed trace opens with its root-cause span selected.
+
+### Swarms
+
+Answers: *what did this swarm of agents do, as one run?*
+
+![Swarm](../dashboard/screenshots/swarm.png)
+
+- Swarm runs in the selected time range with status, agents, failed agents, traces, calls, cost, and duration; search by name, id, or service
+- Opening a swarm: totals (agents, roles, traces, max depth, max fan-out, calls, cost, failed agents), **Activity** (agents running, started, failed over time), and **Insights** such as failed agents, runaway fan-out, deep nesting, and cost hotspots
+- **Graph**: agents left to right by who started whom, with message and handoff edges; swarms of more than 120 agents open grouped by role
+- **Agents**, **Messages**, and **Traces** tabs; select an agent to see its calls and cost and **Open in trace**
+- **Stop swarm** halts every agent in the swarm
+
+Deep link: `/?page=swarms&swarm=<swarm_id>`. See [swarms.md](swarms.md).
 
 ### Sessions
 

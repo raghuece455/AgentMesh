@@ -275,6 +275,7 @@ class ActionContext:
     service: str | None = None
     environment: str | None = None
     arguments: Any = None
+    swarm_id: str | None = None
 
     @property
     def target(self) -> str:

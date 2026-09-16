@@ -80,7 +80,7 @@ def test_postgres_matches_sqlite_across_the_api(tmp_path):
 
     # Demo trace ids are random, so pair the two databases' traces by name and order.
     pairs = list(zip(ordered(sqlite), ordered(postgres), strict=True))
-    assert len(pairs) == 18  # 10 demo traces plus 2 experiments x 4 items
+    assert len(pairs) == 26  # 18 demo traces (incl. 8 swarm traces) plus 2 experiments x 4 items
     assert [(a["workflow_name"], a["status"], a["span_count"]) for a, _ in pairs] == [
         (b["workflow_name"], b["status"], b["span_count"]) for _, b in pairs
     ]
@@ -97,10 +97,21 @@ def test_postgres_matches_sqlite_across_the_api(tmp_path):
         ("/api/memory/operations",) * 2, ("/api/rag/retrievals",) * 2, ("/api/prompts",) * 2, ("/api/approvals",) * 2,
         ("/api/evaluations/summary",) * 2, ("/api/datasets",) * 2, ("/api/experiments",) * 2, ("/api/alerts/rules",) * 2,
         ("/api/policies",) * 2, ("/api/policy-decisions",) * 2, ("/api/guardrails/summary",) * 2, ("/api/halts?active=false",) * 2,
+        ("/api/swarms",) * 2,
         tuple(f"/api/sessions/{value}" for value in ids["session_id"]),
         tuple(f"/api/agents/{value}/runs" for value in ids["agent_id"]),
         tuple(f"/api/workflows/{value}/graph" for value in ids["workflow_id"]),
     ]
+    swarm_pairs = zip(
+        sorted(shape(sqlite, "/api/swarms"), key=lambda item: item["name"]),
+        sorted(shape(postgres, "/api/swarms"), key=lambda item: item["name"]),
+        strict=True,
+    )
+    for left_swarm, right_swarm in swarm_pairs:
+        left_detail = shape(sqlite, f"/api/swarms/{left_swarm['swarm_id']}")
+        right_detail = shape(postgres, f"/api/swarms/{right_swarm['swarm_id']}")
+        for key in ("status", "agents", "roles", "max_depth", "max_fan_out", "failed_agents", "messages", "handoffs"):
+            assert left_detail["summary"][key] == right_detail["summary"][key], (left_swarm["name"], key)
     for left_trace, right_trace in pairs:
         for suffix in ("", "/spans", "/events", "/insights"):
             paths.append((f"/api/traces/{left_trace['trace_id']}{suffix}", f"/api/traces/{right_trace['trace_id']}{suffix}"))
@@ -171,8 +182,8 @@ def test_cli_against_postgres():
         assert completed.returncode == 0, completed.stderr
         return completed.stdout
 
-    assert json.loads(cli("demo", "seed", "--reset"))["traces_seeded"] == 10
-    assert len(json.loads(cli("traces", "list", "--limit", "50"))) == 18
+    assert json.loads(cli("demo", "seed", "--reset"))["traces_seeded"] == 12
+    assert len(json.loads(cli("traces", "list", "--limit", "50"))) == 26
     assert json.loads(cli("sessions", "list"))[0]["trace_count"] == 3
     doctor = json.loads(cli("doctor"))
     assert doctor["database_readable"] is True and doctor["trace_count"] >= 6

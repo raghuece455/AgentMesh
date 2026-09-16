@@ -81,6 +81,17 @@ See [alerts.md](alerts.md).
 
 ---
 
+## Swarms
+
+| Variable | Default | Description |
+|---|---|---|
+| `AGENTMESH_SWARM_ID` | _(unset)_ | Put every trace this process starts into this swarm (for workers launched per swarm) |
+| `AGENTMESH_SWARM_NAME` | _(unset)_ | Display name for that swarm |
+
+See [swarms.md](swarms.md).
+
+---
+
 ## Guardrails
 
 | Variable | Default | Description |

@@ -61,6 +61,7 @@ import { PromptsPage } from './pages/PromptsPage'
 import { ReplayPage } from './pages/ReplayPage'
 import { SessionsPage } from './pages/SessionsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { SwarmsPage } from './pages/SwarmsPage'
 import { ToolsPage } from './pages/ToolsPage'
 import { TracesPage, type TraceFilters } from './pages/TracesPage'
 import { TraceView } from './pages/TraceView'
@@ -78,8 +79,8 @@ const TRACE_FILTER_KEYS = ['q', 'status', 'workflow', 'model', 'provider', 'agen
 /** Second key of the "g" shortcuts. */
 const GO_TO: Record<string, Section> = { o: 'overview', t: 'traces', s: 'sessions', d: 'datasets', e: 'evaluations', a: 'alerts', r: 'guardrails', c: 'costs', m: 'models', w: 'workflows' }
 
-/** Deep links: ?trace=<id> (used in alert notifications), ?page=datasets&experiment=<id>, ?page=<section>, &range=7d, and trace filters. */
-function initialLink(): { section: Section; traceId: string; experimentId?: string; range: TimeRange; filters: TraceFilters } {
+/** Deep links: ?trace=<id> (used in alert notifications), ?page=datasets&experiment=<id>, ?page=swarms&swarm=<id>, ?page=<section>, &range=7d, and trace filters. */
+function initialLink(): { section: Section; traceId: string; experimentId?: string; swarmId: string; range: TimeRange; filters: TraceFilters } {
   const params = new URLSearchParams(window.location.search)
   const page = params.get('page') as Section | null
   const traceId = params.get('trace') ?? ''
@@ -91,7 +92,7 @@ function initialLink(): { section: Section; traceId: string; experimentId?: stri
     if (value)
       filters[key] = value
   }
-  return { section, traceId, experimentId: params.get('experiment') ?? undefined, range: range && TIME_RANGES.some(item => item.value === range) ? range : '24h', filters }
+  return { section, traceId, experimentId: params.get('experiment') ?? undefined, swarmId: params.get('swarm') ?? '', range: range && TIME_RANGES.some(item => item.value === range) ? range : '24h', filters }
 }
 
 function readStorage(key: string): string | null {
@@ -156,6 +157,7 @@ export function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [apiKeyVersion, setApiKeyVersion] = useState(0)
   const [focusedSession, setFocusedSession] = useState('')
+  const [selectedSwarmId, setSelectedSwarmId] = useState(link.swarmId)
   const [toast, setToast] = useState<{ message: string; tone?: 'neutral' | 'danger' | 'success' }>({ message: '' })
   const [version, setVersion] = useState<string | undefined>()
   const liveRefreshTimer = useRef<number | null>(null)
@@ -362,6 +364,8 @@ export function App() {
       params.set('trace', selectedTraceId)
     else if (section !== 'overview')
       params.set('page', section)
+    if (section === 'swarms' && selectedSwarmId)
+      params.set('swarm', selectedSwarmId)
     if (range !== '24h')
       params.set('range', range)
     if (section === 'traces' && !selectedTraceId) {
@@ -373,7 +377,7 @@ export function App() {
     const next = `${window.location.pathname}${params.toString() ? `?${params}` : ''}`
     if (next !== `${window.location.pathname}${window.location.search}`)
       window.history.replaceState(null, '', next)
-  }, [section, selectedTraceId, range, traceFilters])
+  }, [section, selectedTraceId, selectedSwarmId, range, traceFilters])
 
   useEffect(() => {
     setOlderTraces({ rows: [], lastPageFull: false, loading: false })
@@ -414,17 +418,24 @@ export function App() {
     setSection(next)
     setSelectedTraceId('')
     setFocusedSession('')
+    setSelectedSwarmId('')
     window.scrollTo({ top: 0 })
   }, [])
 
-  const openTrace = useCallback((traceId: string) => {
+  const openTrace = useCallback((traceId: string, spanId?: string) => {
     setSection('traces')
     setSelectedTraceId(traceId)
-    selectedRef.current = { traceId, spanId: undefined }
+    selectedRef.current = { traceId, spanId }
     setTraceDetail(current => current?.trace?.trace_id === traceId ? current : null)
     window.scrollTo({ top: 0 })
-    void loadTrace(traceId)
+    void loadTrace(traceId, spanId)
   }, [loadTrace])
+
+  const openSwarm = useCallback((swarmId: string) => {
+    setSection('swarms')
+    setSelectedSwarmId(swarmId)
+    window.scrollTo({ top: 0 })
+  }, [])
 
   const openSession = useCallback((sessionId: string) => {
     navigate('sessions')
@@ -515,10 +526,13 @@ export function App() {
                   notify('Copied the validation command to the clipboard.', 'success')
                 }}
                 onOpenSession={openSession}
+                onOpenSwarm={openSwarm}
                 onNotify={notify}
               />
             )
           : <TracesPage loading={loading && !loaded} traces={allTraces} hasMore={hasMoreTraces} loadingMore={olderTraces.loading} onLoadMore={() => void loadMoreTraces()} filters={traceFilters} onFilters={setTraceFilters} workflows={data.workflows} providers={data.providers} models={data.models} range={range} onOpen={openTrace} />
+      case 'swarms':
+        return <SwarmsPage refreshKey={connection.lastSuccessfulRefresh} range={range} selectedId={selectedSwarmId} onSelect={setSelectedSwarmId} onTrace={openTrace} />
       case 'sessions':
         return <SessionsPage key={focusedSession} sessions={data.sessions} initialSessionId={focusedSession} onTraceSelect={openTrace} />
       case 'datasets':

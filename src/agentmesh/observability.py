@@ -465,6 +465,14 @@ def _apply_lightweight_migrations(conn: sqlite3.Connection) -> None:
         "insert or ignore into schema_migrations (version, name, applied_at) values (4, 'policies_guardrails', ?)",
         (utc_now(),),
     )
+    from agentmesh.swarms import SWARM_SCHEMA
+
+    for statement in SWARM_SCHEMA:
+        conn.execute(statement)
+    conn.execute(
+        "insert or ignore into schema_migrations (version, name, applied_at) values (5, 'swarms', ?)",
+        (utc_now(),),
+    )
 
 
 # v0.4: datasets, experiments, and alerting. Written in the SQL subset shared by SQLite and PostgreSQL.
@@ -1562,6 +1570,10 @@ TRACE_SCOPED_TABLES = (
     "audit_logs",
     "evaluations",
     "replay_checkpoints",
+    "policy_decisions",
+    "span_links",
+    "agent_messages_log",
+    "swarm_traces",
     "traces",
     "workflow_runs",
     "workflows",
@@ -1592,6 +1604,8 @@ def prune_traces(conn: sqlite3.Connection, started_before: str, dry_run: bool = 
             cursor = conn.execute(f"delete from replay_runs where source_trace_id in ({placeholders})", chunk)
             deleted["replay_runs"] = deleted.get("replay_runs", 0) + max(cursor.rowcount, 0)
         conn.execute("delete from workflows_catalog where workflow_id not in (select distinct workflow_id from workflow_runs)")
+        # A swarm whose traces are all gone goes with them.
+        conn.execute("delete from swarms where swarm_id not in (select distinct swarm_id from swarm_traces)")
         _refresh_provider_health(conn)
     return {"started_before": started_before, "traces": len(trace_ids), "dry_run": dry_run, "deleted_rows": deleted}
 

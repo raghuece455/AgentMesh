@@ -32,6 +32,7 @@ agentmesh dashboard
 | `sdk_quickstart.py` | Trace plain Python with `@agentmesh.observe`, `trace()`, sessions, and scores. Offline, no API keys. |
 | `otel_genai_export.py` | A standard OpenTelemetry app sending GenAI spans to `POST /v1/traces` (needs a running dashboard) |
 | `llm_client_auto_instrumentation.py` | `instrument_openai()` / `instrument_anthropic()` with real API calls, including streaming |
+| `agent_swarm.py` | A planner fans work out to 12 researchers in workers that share only a JSON context; they message a writer, who hands off to a reviewer. Shows one swarm across 13 traces. Offline, no API keys. |
 | `guardrails.py` | Block a production delete, break a tool loop, wait for approval, and halt a service with a policy. Offline, no API keys. |
 | `policies/production-safety.yaml` | A starter policy: loop and spend limits, approvals for refunds, approved models only |
 | `datasets_experiments.py` | Save a trace as a test case, run two agent versions as experiments with `ExactMatch`, `Contains`, and `LLMJudge`, then compare. Offline, no API keys. |

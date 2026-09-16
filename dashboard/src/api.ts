@@ -36,6 +36,8 @@ import type {
   ReplayDetail,
   ReplayRun,
   SpanRecord,
+  SwarmDetail,
+  SwarmSummaryRow,
   TimeseriesData,
   ToolCallRecord,
   TraceDetail,
@@ -324,6 +326,20 @@ export function compareExperiments(base: string, candidate: string): Promise<Exp
 
 export function deleteExperiment(experimentId: string): Promise<JsonRecord> {
   return sendJson<JsonRecord>('DELETE', `/api/experiments/${encodeURIComponent(experimentId)}`)
+}
+
+export function listSwarms(filters: { q?: string; limit?: number; hours?: number } = {}): Promise<SwarmSummaryRow[]> {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '')
+      params.set(key, String(value))
+  }
+  const query = params.toString()
+  return getJson<SwarmSummaryRow[]>(`/api/swarms${query ? `?${query}` : ''}`)
+}
+
+export function getSwarm(swarmId: string): Promise<SwarmDetail> {
+  return getJson<SwarmDetail>(`/api/swarms/${encodeURIComponent(swarmId)}`)
 }
 
 export function getGuardrailsSummary(hours = 24): Promise<GuardrailsSummary> {

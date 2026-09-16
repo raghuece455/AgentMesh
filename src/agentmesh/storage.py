@@ -251,6 +251,10 @@ class SQLiteStore:
         from agentmesh.observability import install_schema
 
         tables = [
+            "agent_messages_log",
+            "span_links",
+            "swarm_traces",
+            "swarms",
             "policy_decisions",
             "policy_halts",
             "policies",
@@ -1326,6 +1330,25 @@ class SQLiteStore:
         from agentmesh import policy_store
 
         return self._write(policy_store.get_approval, approval_id)  # type: ignore[return-value]
+
+    # -- swarms -------------------------------------------------------------------------
+
+    def list_swarms(self, limit: int = 50, offset: int = 0, query: str | None = None, since: str | None = None) -> list[JsonObject]:
+        from agentmesh import swarms
+
+        return self._write(swarms.list_swarms, limit, offset, query, since)  # type: ignore[return-value]
+
+    def trace_swarms(self, trace_id: str) -> list[JsonObject]:
+        from agentmesh import swarms
+
+        return self._write(swarms.trace_swarms, trace_id)  # type: ignore[return-value]
+
+    def get_swarm(self, swarm_id: str) -> JsonObject | None:
+        """Read the swarm's rows under the lock, then build its graph without holding it."""
+        from agentmesh import swarms
+
+        rows = self._write(swarms.swarm_rows, swarm_id)
+        return swarms.swarm_report(rows) if rows is not None else None  # type: ignore[arg-type]
 
     def simulate_policy(self, policies: list[object], limit: int = 200, since: str | None = None) -> JsonObject:
         """Replay the most recent recorded traces through ``policies`` as if they were enforced."""

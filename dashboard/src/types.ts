@@ -159,6 +159,7 @@ export interface TraceDetail {
   costs: CostSummary
   diagnosis: Diagnosis
   policy_decisions?: PolicyDecision[]
+  swarms?: Array<{ swarm_id: string; name: string }>
 }
 
 export interface CostSummary {
@@ -696,7 +697,7 @@ export interface PolicyDecision {
 
 export interface HaltRecord {
   halt_id: string
-  scope: 'all' | 'trace' | 'agent' | 'service'
+  scope: 'all' | 'swarm' | 'trace' | 'agent' | 'service'
   value: string | null
   reason: string | null
   created_by: string | null
@@ -737,4 +738,135 @@ export interface PolicySimulation {
     approval_calls: number
     first: { span_id: string | null; rule: string; action: PolicyAction; reason: string; target: string; kind: string }
   }>
+}
+
+export interface SwarmSummaryRow {
+  swarm_id: string
+  name: string
+  service_name: string | null
+  environment: string | null
+  is_demo: boolean
+  status: string
+  traces: number
+  agents: number
+  failed_agents: number
+  running_agents: number
+  errors: number
+  llm_calls: number
+  tool_calls: number
+  tokens: number
+  cost: number
+  started_at: string | null
+  ended_at: string | null
+  duration_ms: number | null
+  last_seen_at: string
+}
+
+export interface SwarmNode {
+  key: string
+  span_id: string
+  trace_id: string
+  name: string
+  kind: 'agent' | 'trace'
+  status: string
+  started_at: string | null
+  ended_at: string | null
+  duration_ms: number | null
+  parent_key: string | null
+  depth: number
+  children: number
+  llm_calls: number
+  tool_calls: number
+  tokens: number
+  cost: number
+  errors: number
+  error_message: string | null
+  tools: string[]
+  models: string[]
+  folded_trace?: string
+}
+
+export type SwarmEdgeKind = 'spawn' | 'message' | 'handoff' | 'link'
+
+export interface SwarmEdge {
+  source: string
+  target: string
+  kind: SwarmEdgeKind
+  count: number
+  first_at?: string | null
+}
+
+export interface SwarmRole {
+  name: string
+  kind: 'agent' | 'trace'
+  instances: number
+  running: number
+  failed: number
+  llm_calls: number
+  tool_calls: number
+  tokens: number
+  cost: number
+  min_depth: number
+}
+
+export interface SwarmMessage {
+  message_id: string
+  trace_id: string
+  span_id: string
+  from_agent: string | null
+  to_agent: string | null
+  kind: string
+  content: unknown
+  created_at: string
+  source_key: string | null
+  target_key: string | null
+}
+
+export interface SwarmInsight {
+  kind: string
+  severity: 'danger' | 'warning' | 'info'
+  title: string
+  detail: string
+  node_key: string | null
+}
+
+export interface SwarmDetail {
+  swarm_id: string
+  name: string
+  service_name: string | null
+  environment: string | null
+  is_demo: boolean
+  first_seen_at: string
+  last_seen_at: string
+  traces: Array<{ trace_id: string; workflow_name: string | null; status: string; started_at: string; ended_at: string | null; duration_ms: number | null; service_name: string | null }>
+  summary: {
+    status: string
+    traces: number
+    agents: number
+    running_agents: number
+    failed_agents: number
+    roles: number
+    max_depth: number
+    max_fan_out: number
+    max_fan_out_key: string | null
+    llm_calls: number
+    tool_calls: number
+    tokens: number
+    cost: number
+    errors: number
+    messages: number
+    handoffs: number
+    spans: number
+    started_at: string | null
+    ended_at: string | null
+    duration_ms: number | null
+    truncated: boolean
+    nodes_truncated: boolean
+  }
+  nodes: SwarmNode[]
+  edges: SwarmEdge[]
+  roles: { nodes: SwarmRole[]; edges: Array<{ source: string; target: string; kind: SwarmEdgeKind; count: number }> }
+  messages: SwarmMessage[]
+  timeline: Array<{ at: string; active: number; started: number; failed: number }>
+  insights: SwarmInsight[]
 }
