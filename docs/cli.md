@@ -165,7 +165,14 @@ agentmesh alerts history [--rule NAME]
 agentmesh alerts remove "checkout failures"
 ```
 
-Kinds: `failure_rate`, `failure_count`, `cost`, `trace_cost`, `latency_p95`, `loop_detected`. See [alerts.md](alerts.md).
+Kinds: `failure_rate`, `failure_count`, `cost`, `trace_cost`, `latency_p95`, `loop_detected`, plus the swarm and egress anomaly kinds `new_destination`, `swarm_agents`, `swarm_spawn_rate`, `swarm_cost`, `swarm_errors`, and `swarm_loop`, which take `--swarm` and (for `new_destination`) `--access-kind`:
+
+```bash
+agentmesh alerts add --name "unknown egress" --kind new_destination --threshold 1 --access-kind network
+agentmesh alerts add --name "swarm runaway" --kind swarm_agents --threshold 500 --swarm "research-*"
+```
+
+See [alerts.md](alerts.md).
 
 ---
 

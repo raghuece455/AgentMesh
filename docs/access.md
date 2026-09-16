@@ -50,6 +50,8 @@ rules:
 
 Denied calls raise `agentmesh.PolicyViolation` in the agent and are still recorded on the Access page — with the status `failed` — so you can see what an agent *tried* to reach. See [guardrails.md](guardrails.md).
 
+To be told about a destination instead of blocking it, add a `new_destination` alert rule: it notifies once for each host or store nothing in this AgentMesh had reached before. See [alerts.md](alerts.md#swarm-and-egress-anomalies).
+
 **What this does not do:** it reads the call AgentMesh is given. An agent that builds a URL inside an opaque binary, resolves an IP itself, or uses a tool that never reveals its destination is not covered. For hard network isolation, use a proxy or egress firewall and keep these rules as the in-agent layer.
 
 ---

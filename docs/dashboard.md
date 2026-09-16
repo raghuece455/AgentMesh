@@ -124,11 +124,11 @@ Answers: *is anything on fire right now?*
 
 - Firing, rule, notification, and check-interval counts
 - Rules with their condition, scope, state (firing/ok/disabled), last value, notification channel, and last fired time; filter by state
-- **New alert rule** for failure rate, failed runs, spend, expensive traces, p95 latency, and tool loops
+- **New alert rule** for failure rate, failed runs, spend, expensive traces, p95 latency, tool loops, new destinations, and swarm anomalies (size, spawn rate, spend, failures, agents looping between each other)
 - Each rule's menu can enable or disable it, send a test notification, or delete it; **Check now** evaluates every rule immediately
 - Recent notifications with delivery status
 
-Links in the form `/?trace=<trace_id>` open a trace directly (alert notifications use them when `AGENTMESH_PUBLIC_URL` is set), and `/?page=datasets&experiment=<id>` opens an experiment. See [alerts.md](alerts.md).
+Links in the form `/?trace=<trace_id>` open a trace directly (alert notifications use them when `AGENTMESH_PUBLIC_URL` is set), `/?page=swarms&swarm=<id>` opens a swarm from a swarm alert, and `/?page=datasets&experiment=<id>` opens an experiment. See [alerts.md](alerts.md).
 
 ### Workflows
 

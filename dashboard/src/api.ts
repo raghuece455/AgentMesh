@@ -417,7 +417,7 @@ export function listAlertRules(): Promise<AlertRule[]> {
   return getJson<AlertRule[]>('/api/alerts/rules')
 }
 
-export function getAlertKinds(): Promise<{ kinds: Record<string, string>; check_interval_seconds: number }> {
+export function getAlertKinds(): Promise<{ kinds: Record<string, string>; groups: Record<string, string>; check_interval_seconds: number }> {
   return getJson('/api/alerts/kinds')
 }
 

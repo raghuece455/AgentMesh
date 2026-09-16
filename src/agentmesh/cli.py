@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+from agentmesh.alerts import ALERT_KINDS
 from agentmesh.costs import CostTracker
 from agentmesh.dashboard import create_app
 from agentmesh.debug import FailedRunDiagnosis, ReplayEngine, TimeTravelDebugger
@@ -217,12 +218,12 @@ def main() -> None:
     experiments_run.add_argument("--fail-on-regression", action="store_true", help="Exit 1 if any item regressed vs --baseline")
     experiments_run.add_argument("--json", action="store_true", help="Print the full result as JSON")
 
-    alerts_parser = subcommands.add_parser("alerts", help="Alert rules for failures, cost, latency, and tool loops")
+    alerts_parser = subcommands.add_parser("alerts", help="Alert rules for failures, cost, latency, tool loops, new destinations, and swarm anomalies")
     alerts_subcommands = alerts_parser.add_subparsers(dest="alerts_command", required=True)
     alerts_subcommands.add_parser("list", help="List alert rules")
     alerts_add = alerts_subcommands.add_parser("add", help="Create an alert rule")
     alerts_add.add_argument("--name", required=True)
-    alerts_add.add_argument("--kind", required=True, choices=["failure_rate", "failure_count", "cost", "trace_cost", "latency_p95", "loop_detected"])
+    alerts_add.add_argument("--kind", required=True, choices=list(ALERT_KINDS))
     alerts_add.add_argument("--threshold", required=True, type=float)
     alerts_add.add_argument("--window", default="15m", help="e.g. 15m, 1h, 1d")
     alerts_add.add_argument("--cooldown", default="30m")
@@ -234,6 +235,8 @@ def main() -> None:
     alerts_add.add_argument("--service")
     alerts_add.add_argument("--source", help="runtime, sdk, otlp, or file")
     alerts_add.add_argument("--min-runs", type=int)
+    alerts_add.add_argument("--swarm", help="Only swarms whose id or name matches (swarm and new_destination rules; * allowed)")
+    alerts_add.add_argument("--access-kind", choices=["network", "retrieval", "memory", "db", "file", "api", "other"], help="new_destination rules only")
     alerts_add.add_argument("--disabled", action="store_true")
     alerts_update = alerts_subcommands.add_parser("update", help="Change an alert rule")
     alerts_update.add_argument("name")
@@ -696,6 +699,8 @@ def _run_alerts(db_path: str, args: argparse.Namespace) -> None:
                 "service": args.service,
                 "source": args.source,
                 "min_runs": args.min_runs,
+                "swarm": args.swarm,
+                "access_kind": args.access_kind,
             }
             channel = {"url": args.webhook, "format": args.format, "secret": args.secret} if args.webhook else {}
             payload = {

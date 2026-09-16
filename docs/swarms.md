@@ -137,6 +137,23 @@ The server checks these every few seconds and halts a swarm that breaks one; the
 
 ---
 
+## Anomaly alerts
+
+Limits stop a swarm. Alerts tell a person — in Slack, Discord, or any webhook — and they fire on the shapes of trouble a swarm gets into even when nothing is over a hard limit:
+
+```bash
+agentmesh alerts add --name "swarm runaway"    --kind swarm_agents     --threshold 500 --swarm "research-*"
+agentmesh alerts add --name "spawn spike"      --kind swarm_spawn_rate --threshold 120
+agentmesh alerts add --name "swarm spend"      --kind swarm_cost       --threshold 50
+agentmesh alerts add --name "swarm failing"    --kind swarm_errors     --threshold 10
+agentmesh alerts add --name "agents in circles" --kind swarm_loop     --threshold 10
+agentmesh alerts add --name "unknown egress"   --kind new_destination  --threshold 1 --access-kind network
+```
+
+`swarm_loop` fires only when two agents send work *both* ways — a coordinator messaging fifty workers is delegation, not a loop. `new_destination` fires for a host or store nothing in this AgentMesh had ever reached, which is how a swarm that wandered onto the open internet announces itself. Notifications link straight to the swarm. See [alerts.md](alerts.md#swarm-and-egress-anomalies).
+
+---
+
 ## CLI, API, and MCP
 
 ```bash

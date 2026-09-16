@@ -34,7 +34,7 @@ Agent runs are hard to debug once prompts, tools, retrieval, retries, sub-agents
 - **LLM-as-judge** — `LLMJudge("correctness", judge=...)` with any model, plus exact-match, contains, regex, JSON, and similarity evaluators; score production traces with `evaluate_traces()`.
 - **Egress and data access** — every host your agents reached and every store they read, from HTTP spans, URLs in tool arguments, retrievals and memory; new destinations flagged; and an allowlist rule that blocks a call to an unapproved domain before it is made. [Access →](docs/access.md)
 - **Guardrails and kill switch** — policies that block, pause for approval, or limit tool calls, LLM calls, and agents *before they run*: stop tool loops, runaway spend, production deletes, unapproved models, and swarm fan-out; try a policy in monitor mode or simulate it on recorded traces first; halt a service, agent, or trace in one click. [Guardrails →](docs/guardrails.md)
-- **Alerts** — Slack, Discord, or signed webhook notifications for failure spikes, spend, expensive traces, p95 latency, and agents stuck in tool loops. [Alerts →](docs/alerts.md)
+- **Alerts** — Slack, Discord, or signed webhook notifications for failure spikes, spend, expensive traces, p95 latency, agents stuck in tool loops, swarms that grow or spend too fast, agents looping between each other, and hosts reached for the first time. [Alerts →](docs/alerts.md)
 - **Accurate cost tracking** — per-million-token pricing with cache-read/cache-write rates, current Claude, GPT, and Gemini prices built in, `agentmesh pricing sync` for everything else.
 - **MCP server** — `agentmesh mcp` lets Claude Code, Cursor, or any MCP client list, inspect, diagnose, and score your traces, compare experiments, and check alerts. [MCP →](docs/mcp.md)
 - **SQLite or PostgreSQL** — SQLite for a zero-setup local install; `AGENTMESH_DB_URL=postgresql://...` for a shared team server, with every feature on both.
@@ -155,6 +155,7 @@ And get told when production misbehaves:
 ```bash
 agentmesh alerts add --name "tool loops" --kind loop_detected --threshold 4 --webhook https://hooks.slack.com/services/...
 agentmesh alerts add --name "checkout failures" --kind failure_rate --threshold 0.2 --window 15m --workflow checkout
+agentmesh alerts add --name "unknown egress" --kind new_destination --threshold 1 --access-kind network
 ```
 
 Try both offline: `python examples/datasets_experiments.py`, then open **Datasets & Evals** and **Alerts**.
@@ -308,7 +309,7 @@ The local dashboard is built around production debugging workflows, with a comma
 | **Datasets & Evals** | Datasets built from traces or by hand, experiment runs with per-evaluator scores, and item-by-item comparison of two runs |
 | **Access** | Hosts agents reached and data they read, with new destinations flagged, per-agent drill-down, and links to the run |
 | **Guardrails** | Policies with a YAML editor, templates, and simulation on recorded traces; blocked, approval, and would-block decisions; a kill switch for services, agents, and traces |
-| **Alerts** | Alert rules with live state, one-click test notifications, and alert history |
+| **Alerts** | Alert rules with live state, one-click test notifications, and alert history; run, swarm, and egress anomaly kinds |
 | **Connect** | Your OTLP endpoint and copy-paste setup for OpenTelemetry, the Python and TypeScript SDKs, OpenAI Agents SDK, Pydantic AI, and MCP |
 | **Workflows** | Node graph with agent/task/model/tool/memory/approval nodes, status, retries, cost, latency |
 | **Agents** | Role, model/provider, cost/token trends, tool calls, memory operations, errors |
@@ -329,7 +330,7 @@ The local dashboard is built around production debugging workflows, with a comma
   </tr>
   <tr>
     <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/experiment-compare.png" alt="Experiment comparison: two prompt versions over the same dataset, with regressed and improved items, score deltas, and links to each trace"><br><b>Experiments</b> — what a change improved and what it broke</td>
-    <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/alerts.png" alt="Alerts page: rules for failed runs, expensive traces, tool loops, and spend, with firing state and recent notifications"><br><b>Alerts</b> — failures, spend, and loops, to Slack or a webhook</td>
+    <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/alerts.png" alt="Alerts page: rules for failed runs, expensive traces, tool loops, spend, swarm size, and new destinations, with firing state and recent notifications"><br><b>Alerts</b> — failures, spend, loops, swarm anomalies, and new destinations, to Slack or a webhook</td>
   </tr>
   <tr>
     <td width="50%"><img src="https://raw.githubusercontent.com/raghuece455/AgentMesh/main/dashboard/screenshots/cost-center.png" alt="Costs: spend today, this week, and this month, projected spend, failed-run waste, budget progress, spend over time, and token mix"><br><b>Costs</b> — spend, budget, failed-run waste, cost by model</td>
