@@ -19,12 +19,20 @@ const KIND_LABELS: Record<string, string> = {
   trace_cost: 'Expensive trace',
   latency_p95: 'p95 latency',
   loop_detected: 'Tool loop',
+  new_destination: 'New destination',
+  swarm_agents: 'Swarm size',
+  swarm_spawn_rate: 'Swarm spawn rate',
+  swarm_cost: 'Swarm spend',
+  swarm_errors: 'Swarm failures',
+  swarm_loop: 'Agent loop',
 }
+const SWARM_SCOPED = new Set(['new_destination', 'swarm_agents', 'swarm_spawn_rate', 'swarm_cost', 'swarm_errors', 'swarm_loop'])
 
 export function AlertsPage({ refreshKey, onChanged }: { refreshKey: string | null; onChanged: () => void }) {
   const [rules, setRules] = useState<AlertRule[]>([])
   const [events, setEvents] = useState<AlertEvent[]>([])
   const [kinds, setKinds] = useState<Record<string, string>>({})
+  const [kindGroups, setKindGroups] = useState<Record<string, string>>({})
   const [checkInterval, setCheckInterval] = useState<number | null>(null)
   const [notice, setNotice] = useState<{ message: string; tone?: 'neutral' | 'danger' | 'success' }>({ message: '' })
   const [creating, setCreating] = useState(false)
@@ -42,6 +50,7 @@ export function AlertsPage({ refreshKey, onChanged }: { refreshKey: string | nul
         setRules(nextRules)
         setEvents(nextEvents)
         setKinds(meta.kinds)
+        setKindGroups(meta.groups ?? {})
         setCheckInterval(meta.check_interval_seconds)
       })
       .catch(caught => setNotice({ message: errorText(caught), tone: 'danger' }))
@@ -69,7 +78,7 @@ export function AlertsPage({ refreshKey, onChanged }: { refreshKey: string | nul
     <>
       <PageHeader
         title="Alerts"
-        description="Get notified in Slack, Discord, or any webhook when failures spike, spend jumps, or an agent loops."
+        description="Get notified in Slack, Discord, or any webhook when failures spike, spend jumps, a swarm grows out of control, or an agent reaches somewhere new."
         actions={(
           <>
             <Button icon={<CheckCircle2 />} onClick={() => void act(() => checkAlerts(), 'Checked all rules.')}>Check now</Button>
@@ -78,7 +87,7 @@ export function AlertsPage({ refreshKey, onChanged }: { refreshKey: string | nul
         )}
       />
       <Toast message={notice.message} tone={notice.tone} onDone={clearNotice} />
-      <NewRuleDrawer open={creating} kinds={kinds} onClose={() => setCreating(false)} onCreated={name => { setCreating(false); setNotice({ message: `Created ${name}.`, tone: 'success' }); reload() }} />
+      <NewRuleDrawer open={creating} kinds={kinds} groups={kindGroups} onClose={() => setCreating(false)} onCreated={name => { setCreating(false); setNotice({ message: `Created ${name}.`, tone: 'success' }); reload() }} />
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatCard label="Firing now" icon={<ShieldAlert />} value={firing} tone={firing ? 'danger' : 'neutral'} sub={firing ? 'Needs attention' : 'All clear'} />
@@ -105,7 +114,7 @@ export function AlertsPage({ refreshKey, onChanged }: { refreshKey: string | nul
         )}
       >
         {rules.length === 0
-          ? <EmptyState icon={<BellRing />} title="No alert rules" detail="Create a rule for failed runs, spend, expensive traces, latency, or tool loops." action={<Button variant="primary" icon={<Plus />} onClick={() => setCreating(true)}>New alert rule</Button>} />
+          ? <EmptyState icon={<BellRing />} title="No alert rules" detail="Create a rule for failed runs, spend, latency, tool loops, new destinations, or swarms that grow too fast." action={<Button variant="primary" icon={<Plus />} onClick={() => setCreating(true)}>New alert rule</Button>} />
           : (
               <DataTable
                 rows={visibleRules}
@@ -123,7 +132,7 @@ export function AlertsPage({ refreshKey, onChanged }: { refreshKey: string | nul
                       : row.state === 'firing' ? <Badge tone="danger" dot>Firing</Badge> : <Badge tone="success" dot>OK</Badge>,
                   },
                   { label: 'Rule', sortValue: row => row.name, render: row => <span className="flex flex-col"><span className="font-medium text-fg">{row.name}</span><span className="font-mono text-[11.5px] text-fg-subtle">{condition(row)}</span></span> },
-                  { label: 'Scope', render: row => <Filters filters={row.filters} /> },
+                  { label: 'Scope', render: row => <Filters filters={row.filters} kind={row.kind} /> },
                   { label: 'Last value', align: 'right', sortValue: row => row.last_value ?? -1, render: row => <span className={row.enabled && row.state === 'firing' ? 'font-semibold text-danger-text' : 'text-fg'}>{formatValue(row.kind, row.last_value)}</span> },
                   { label: 'Notify', render: row => row.channel.url ? <Badge tone="accent">{row.channel.format}</Badge> : <Badge outline>dashboard only</Badge> },
                   { label: 'Last fired', align: 'right', sortValue: row => Date.parse(row.last_triggered_at ?? '') || 0, render: row => <span className="whitespace-nowrap text-fg-muted" title={formatDateTime(row.last_triggered_at)}>{row.last_triggered_at ? formatRelative(row.last_triggered_at) : 'never'}</span> },
@@ -183,18 +192,26 @@ export function AlertsPage({ refreshKey, onChanged }: { refreshKey: string | nul
   )
 }
 
-function NewRuleDrawer({ open, kinds, onClose, onCreated }: { open: boolean; kinds: Record<string, string>; onClose: () => void; onCreated: (name: string) => void }) {
-  const [form, setForm] = useState({ name: '', kind: 'failure_rate', threshold: '0.2', window: '15m', cooldown: '30m', url: '', format: '', secret: '', workflow: '', environment: '' })
+function NewRuleDrawer({ open, kinds, groups, onClose, onCreated }: { open: boolean; kinds: Record<string, string>; groups: Record<string, string>; onClose: () => void; onCreated: (name: string) => void }) {
+  const [form, setForm] = useState({ name: '', kind: 'failure_rate', threshold: '0.2', window: '15m', cooldown: '30m', url: '', format: '', secret: '', workflow: '', environment: '', swarm: '', accessKind: '' })
+  const swarmScoped = SWARM_SCOPED.has(form.kind)
   const [error, setError] = useState('')
   const set = (key: keyof typeof form) => (value: string) => setForm(current => ({ ...current, [key]: value }))
 
   async function submit(event?: FormEvent) {
     event?.preventDefault()
     const filters: Record<string, string> = {}
-    if (form.workflow.trim())
-      filters.workflow = form.workflow.trim()
     if (form.environment.trim())
       filters.environment = form.environment.trim()
+    if (swarmScoped) {
+      if (form.swarm.trim())
+        filters.swarm = form.swarm.trim()
+      if (form.accessKind && form.kind === 'new_destination')
+        filters.access_kind = form.accessKind
+    }
+    else if (form.workflow.trim()) {
+      filters.workflow = form.workflow.trim()
+    }
     const channel: Record<string, string> = {}
     if (form.url.trim()) {
       channel.url = form.url.trim()
@@ -226,7 +243,7 @@ function NewRuleDrawer({ open, kinds, onClose, onCreated }: { open: boolean; kin
         <TextField label="Name" value={form.name} onChange={set('name')} placeholder="checkout failures" />
         <fieldset className="flex flex-col gap-3">
           <legend className="mb-2 text-[13px] font-semibold text-fg">Condition</legend>
-          <SelectField label="Alert when" value={form.kind} onChange={kind => setForm(current => ({ ...current, kind, threshold: defaultThreshold(kind) }))} options={Object.keys(kinds).map(kind => [kind, KIND_LABELS[kind] ?? kind])} hint={kinds[form.kind]} />
+          <SelectField label="Alert when" value={form.kind} onChange={kind => setForm(current => ({ ...current, kind, threshold: defaultThreshold(kind) }))} options={Object.keys(kinds).map(kind => [kind, KIND_LABELS[kind] ?? kind])} groups={groups} hint={kinds[form.kind]} />
           <div className="grid grid-cols-3 gap-2">
             <TextField label={thresholdLabel(form.kind)} value={form.threshold} onChange={set('threshold')} />
             <TextField label="Window" value={form.window} onChange={set('window')} placeholder="15m" />
@@ -236,9 +253,19 @@ function NewRuleDrawer({ open, kinds, onClose, onCreated }: { open: boolean; kin
         <fieldset className="flex flex-col gap-3">
           <legend className="mb-2 text-[13px] font-semibold text-fg">Scope</legend>
           <div className="grid grid-cols-2 gap-2">
-            <TextField label="Workflow" value={form.workflow} onChange={set('workflow')} placeholder="any" />
+            {swarmScoped
+              ? <TextField label="Swarm" value={form.swarm} onChange={set('swarm')} placeholder="any" hint="Swarm id or name; * allowed" />
+              : <TextField label="Workflow" value={form.workflow} onChange={set('workflow')} placeholder="any" />}
             <TextField label="Environment" value={form.environment} onChange={set('environment')} placeholder="production" />
           </div>
+          {form.kind === 'new_destination' && (
+            <SelectField
+              label="Destination kind"
+              value={form.accessKind}
+              onChange={set('accessKind')}
+              options={[['', 'Any'], ['network', 'Network hosts'], ['retrieval', 'Retrieval'], ['memory', 'Memory'], ['db', 'Databases'], ['file', 'Files'], ['api', 'APIs'], ['other', 'Other']]}
+            />
+          )}
         </fieldset>
         <fieldset className="flex flex-col gap-3">
           <legend className="mb-2 text-[13px] font-semibold text-fg">Notification</legend>
@@ -254,10 +281,10 @@ function NewRuleDrawer({ open, kinds, onClose, onCreated }: { open: boolean; kin
   )
 }
 
-function Filters({ filters }: { filters: Record<string, unknown> }) {
+function Filters({ filters, kind }: { filters: Record<string, unknown>; kind: string }) {
   const entries = Object.entries(filters).filter(([key]) => key !== 'min_runs')
   if (!entries.length)
-    return <span className="whitespace-nowrap text-fg-subtle">all traces</span>
+    return <span className="whitespace-nowrap text-fg-subtle">{kind === 'new_destination' ? 'all destinations' : SWARM_SCOPED.has(kind) ? 'all swarms' : 'all traces'}</span>
   return <span className="flex flex-wrap gap-1">{entries.map(([key, value]) => <Badge key={key} outline>{key}: {String(value)}</Badge>)}</span>
 }
 
@@ -266,6 +293,10 @@ function condition(rule: AlertRule): string {
   const threshold = formatValue(rule.kind, rule.threshold)
   if (rule.kind === 'trace_cost')
     return `trace cost >= ${threshold} · last ${window}`
+  if (rule.kind === 'new_destination')
+    return `a destination reached >= ${threshold}x for the first time · last ${window}`
+  if (rule.kind === 'swarm_loop')
+    return `two agents exchanged >= ${threshold} messages · last ${window}`
   if (rule.kind === 'loop_detected')
     return `same tool call repeated >= ${threshold}x · last ${window}`
   return `${(KIND_LABELS[rule.kind] ?? rule.kind).toLowerCase()} >= ${threshold} · last ${window}`
@@ -276,7 +307,7 @@ function formatValue(kind: string, value: number | null | undefined): string {
     return '-'
   if (kind === 'failure_rate')
     return `${Math.round(value * 100)}%`
-  if (kind === 'cost' || kind === 'trace_cost')
+  if (kind === 'cost' || kind === 'trace_cost' || kind === 'swarm_cost')
     return `$${value.toFixed(value < 1 ? 4 : 2)}`
   if (kind === 'latency_p95')
     return value >= 1000 ? `${(value / 1000).toFixed(1)}s` : `${Math.round(value)}ms`
@@ -284,9 +315,15 @@ function formatValue(kind: string, value: number | null | undefined): string {
 }
 
 function thresholdLabel(kind: string): string {
-  return { failure_rate: 'Rate (0-1)', cost: 'USD', trace_cost: 'USD', latency_p95: 'ms', loop_detected: 'Repeats' }[kind] ?? 'Threshold'
+  return {
+    failure_rate: 'Rate (0-1)', cost: 'USD', trace_cost: 'USD', latency_p95: 'ms', loop_detected: 'Repeats',
+    new_destination: 'Accesses', swarm_agents: 'Agents', swarm_spawn_rate: 'Agents / min', swarm_cost: 'USD', swarm_errors: 'Failed traces', swarm_loop: 'Messages',
+  }[kind] ?? 'Threshold'
 }
 
 function defaultThreshold(kind: string): string {
-  return { failure_rate: '0.2', failure_count: '5', cost: '10', trace_cost: '1', latency_p95: '30000', loop_detected: '3' }[kind] ?? '1'
+  return {
+    failure_rate: '0.2', failure_count: '5', cost: '10', trace_cost: '1', latency_p95: '30000', loop_detected: '3',
+    new_destination: '1', swarm_agents: '100', swarm_spawn_rate: '60', swarm_cost: '25', swarm_errors: '5', swarm_loop: '10',
+  }[kind] ?? '1'
 }

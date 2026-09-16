@@ -167,7 +167,7 @@ def create_app(db_path: str | Path | None = None):
     from fastapi.staticfiles import StaticFiles
 
     from agentmesh import __version__
-    from agentmesh.alerts import ALERT_KINDS, AlertScheduler, scheduler_interval
+    from agentmesh.alerts import ALERT_KINDS, KIND_GROUPS, AlertScheduler, scheduler_interval
     from agentmesh.analysis import trace_insights
     from agentmesh.otlp import (
         OTLPDecodeError,
@@ -592,7 +592,7 @@ def create_app(db_path: str | Path | None = None):
 
     @app.get("/api/alerts/kinds", dependencies=[Depends(require_auth)])
     def alert_kinds() -> dict[str, object]:
-        return {"kinds": ALERT_KINDS, "check_interval_seconds": scheduler_interval()}
+        return {"kinds": ALERT_KINDS, "groups": KIND_GROUPS, "check_interval_seconds": scheduler_interval()}
 
     @app.get("/api/alerts/rules", dependencies=[Depends(require_auth)])
     def alert_rules() -> list[dict[str, object]]:

@@ -39,14 +39,34 @@ export function TextField({ label, value, onChange, placeholder, type = 'text', 
   )
 }
 
-export function SelectField({ label, value, options, onChange, hint, className }: { label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void; hint?: ReactNode; className?: string }) {
+export function SelectField({ label, value, options, onChange, hint, className, groups }: { label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void; hint?: ReactNode; className?: string; groups?: Record<string, string> }) {
   return (
     <Field label={label} hint={hint} className={className}>
       <Select className="w-full" value={value} onChange={event => onChange(event.target.value)}>
-        {options.map(([option, text]) => <option key={option} value={option}>{text}</option>)}
+        {groups
+          ? groupOptions(options, groups).map(([name, items]) => (
+              <optgroup key={name} label={name}>
+                {items.map(([option, text]) => <option key={option} value={option}>{text}</option>)}
+              </optgroup>
+            ))
+          : options.map(([option, text]) => <option key={option} value={option}>{text}</option>)}
       </Select>
     </Field>
   )
+}
+
+/** Options in the order given, split wherever the group name changes. */
+function groupOptions(options: Array<[string, string]>, groups: Record<string, string>): Array<[string, Array<[string, string]>]> {
+  const sections: Array<[string, Array<[string, string]>]> = []
+  for (const option of options) {
+    const name = groups[option[0]] ?? ''
+    const last = sections[sections.length - 1]
+    if (last && last[0] === name)
+      last[1].push(option)
+    else
+      sections.push([name, [option]])
+  }
+  return sections
 }
 
 export function SearchInput({ value, onChange, placeholder = 'Search', className, onSubmit }: { value: string; onChange: (value: string) => void; placeholder?: string; className?: string; onSubmit?: () => void }) {

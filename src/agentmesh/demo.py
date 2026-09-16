@@ -514,6 +514,9 @@ def _seed_alert_rules(store: SQLiteStore) -> list[str]:
         {"name": "Expensive trace", "kind": "trace_cost", "threshold": 0.05, "window": "1d"},
         {"name": "Agent tool loops", "kind": "loop_detected", "threshold": 3, "window": "1d"},
         {"name": "Hourly spend", "kind": "cost", "threshold": 25, "window": "1h"},
+        {"name": "New destination reached", "kind": "new_destination", "threshold": 1, "window": "1d"},
+        {"name": "Swarm too large", "kind": "swarm_agents", "threshold": 100, "window": "1d"},
+        {"name": "Agents talking in circles", "kind": "swarm_loop", "threshold": 6, "window": "1d"},
     ]
     existing = {rule["name"] for rule in store.list_alert_rules()}
     for rule in rules:

@@ -1,6 +1,6 @@
 # Alerts
 
-Get a Slack, Discord, or webhook notification when agents start failing, spend jumps, a single run gets expensive, latency degrades, or an agent gets stuck calling the same tool in a loop.
+Get a Slack, Discord, or webhook notification when agents start failing, spend jumps, a single run gets expensive, latency degrades, an agent gets stuck in a loop, a swarm grows out of control, or something reaches a host you have never seen before.
 
 ![Alert rules with firing state and recent notifications](../dashboard/screenshots/alerts.png)
 
@@ -19,9 +19,44 @@ Get a Slack, Discord, or webhook notification when agents start failing, spend j
 
 Runs are traces from every source: the OTLP endpoint, the Python and TypeScript SDKs, and the AgentMesh runtime.
 
-**Aggregate rules** (`failure_rate`, `failure_count`, `cost`, `latency_p95`) notify when the threshold is crossed, remind every `cooldown` while it stays crossed, and send a **resolved** notification when it recovers. **Per-trace rules** (`trace_cost`, `loop_detected`) notify once for each new offending trace, listing up to five trace ids (as dashboard links when `AGENTMESH_PUBLIC_URL` is set).
+**Aggregate rules** (`failure_rate`, `failure_count`, `cost`, `latency_p95`) notify when the threshold is crossed, remind every `cooldown` while it stays crossed, and send a **resolved** notification when it recovers. **Per-item rules** (`trace_cost`, `loop_detected`, and every kind in the next section) notify once for each new offending trace, destination, or swarm, and never resolve — an anomaly happened, it does not unhappen. Up to five ids travel with the notification, as dashboard links when `AGENTMESH_PUBLIC_URL` is set.
 
 Filters narrow a rule to part of your traffic: `workflow`, `environment` (`deployment.environment.name`), `service` (`service.name`), and `source` (`otlp`, `sdk`, `runtime`, `file`).
+
+---
+
+## Swarm and egress anomalies
+
+A run spread over hundreds of agents and dozens of processes fails differently: nothing errors, the fleet just grows, spends, argues with itself, or wanders somewhere it has never been. These kinds watch for that.
+
+| Kind | Fires when | Threshold unit |
+|---|---|---|
+| `new_destination` | A host or resource was reached in the window that AgentMesh had never recorded before, after at least N accesses | accesses |
+| `swarm_agents` | One swarm has started at least N agents | agents |
+| `swarm_spawn_rate` | One swarm is starting at least N agents per minute | agents/minute |
+| `swarm_cost` | One swarm has spent at least N | USD |
+| `swarm_errors` | One swarm has at least N failed traces | traces |
+| `swarm_loop` | Two agents in a swarm have exchanged at least N messages **in both directions** (N ≥ 2) | messages |
+
+Extra filters for these kinds: `swarm` (id or name, `*` allowed) and, for `new_destination`, `access_kind` (`network`, `retrieval`, `memory`, `db`, `file`, `api`, `other`). `workflow`, `source`, and `min_runs` do not apply and are rejected — a swarm is not one workflow.
+
+Things worth knowing:
+
+- **A swarm kind measures the swarm's totals, across every process in it.** The window decides which swarms are looked at (those active in it), not how far back the count goes. Up to 200 swarms, most recently active first, are checked at a time.
+- **One notification names at most 50 offenders.** Anything over that is reported by the next check rather than dropped, so a burst of new destinations arrives as a few readable alerts instead of one wall of text.
+- **"New" means new to this AgentMesh**, not new to the filter. A host your swarm reached for the first time still counts as known if another service called it last week. The first check after you create a `new_destination` rule reports everything reached in its window — that is your baseline.
+- **`swarm_loop` needs work coming back.** A coordinator messaging fifty workers is delegation; A → B → A → B is a loop. Only pairs that sent messages both ways count.
+- **Alerts tell a person; they stop nothing.** To halt a swarm that is growing out of control, give it `swarm:` limits in a policy — see [swarms.md](swarms.md#swarm-wide-limits) and [guardrails.md](guardrails.md). Many teams run both: a limit to stop it, an alert to say so.
+
+```bash
+agentmesh alerts add --name "unknown egress" --kind new_destination --threshold 1 --access-kind network --webhook https://hooks.slack.com/services/T000/B000/XXXX
+
+agentmesh alerts add --name "swarm runaway" --kind swarm_agents --threshold 500 --swarm "research-*"
+agentmesh alerts add --name "spawn spike" --kind swarm_spawn_rate --threshold 120
+agentmesh alerts add --name "agents in circles" --kind swarm_loop --threshold 10
+```
+
+---
 
 ## Create rules
 
@@ -94,7 +129,17 @@ The format is detected from the URL (`hooks.slack.com` → Slack, `discord.com` 
 }
 ```
 
-`status` is `firing`, `resolved`, or `test`.
+`status` is `firing`, `resolved`, or `test`. Per-item rules also carry `details.items` — one entry per offending trace, destination, or swarm:
+
+```json
+{
+  "status": "firing",
+  "message": "Swarm web crawl has started 161 agents; threshold 100",
+  "value": 161,
+  "details": {"swarms": 2, "items": [{"swarm_id": "swarm_9f2c...", "swarm_name": "web crawl", "value": 161}]},
+  "links": ["https://agentmesh.example.com/?page=swarms&swarm=swarm_9f2c..."]
+}
+```
 
 ### Verify signatures
 
@@ -120,7 +165,7 @@ def verify(body: bytes, timestamp: str, signature: str, secret: str) -> bool:
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/alerts/kinds` | Rule kinds and the check interval |
+| GET | `/api/alerts/kinds` | Rule kinds, their groups (Runs, Access, Swarms), and the check interval |
 | GET | `/api/alerts/rules` | Rules with state, last value, last fired |
 | POST | `/api/alerts/rules` | Create a rule |
 | PATCH | `/api/alerts/rules/{rule_id_or_name}` | Change threshold, window, cooldown, filters, channel, or `enabled` |

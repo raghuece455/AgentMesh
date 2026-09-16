@@ -9,7 +9,7 @@
 | [swarms.md](swarms.md) | **Agent swarms**: many agents across traces and processes as one run, swarm graph, messages, stopping a swarm |
 | [access.md](access.md) | **Egress and data access**: hosts agents reached, data they read, and allowlists that block a call before it is made |
 | [guardrails.md](guardrails.md) | **Guardrails**: policies that block, pause, or limit tool calls, LLM calls, and agents; simulation; kill switch |
-| [alerts.md](alerts.md) | **Alerts** — failure, cost, latency, and loop rules with Slack, Discord, and signed webhooks |
+| [alerts.md](alerts.md) | **Alerts** — failure, cost, latency, loop, swarm, and new-destination rules with Slack, Discord, and signed webhooks |
 | [mcp.md](mcp.md) | **MCP server** — let Claude Code, Cursor, or any MCP client query and diagnose traces |
 | [concepts.md](concepts.md) | Core vocabulary — Agent, Workflow, Task, Trace, Tool, Memory, Replay, Budget, Provider, RAG |
 | [agents.md](agents.md) | Building and configuring agents, permission levels, MockModelProvider, trace events |

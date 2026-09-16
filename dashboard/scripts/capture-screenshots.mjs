@@ -68,6 +68,7 @@ async function main() {
     await shot(client, 'experiment-compare.png')
     await click(client, 'Alerts')
     await waitFor(client, 'Agent tool loops')
+    await waitFor(client, 'Swarm too large')
     await waitFor(client, 'Recent notifications')
     await shot(client, 'alerts.png')
     await click(client, 'Swarms')

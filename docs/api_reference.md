@@ -105,7 +105,7 @@ See [datasets-and-experiments.md](datasets-and-experiments.md).
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/alerts/kinds` | Rule kinds with descriptions, and the scheduler interval |
+| `GET` | `/api/alerts/kinds` | Rule kinds with descriptions, their groups (Runs, Access, Swarms), and the scheduler interval |
 | `GET` | `/api/alerts/rules` | Rules with state, last value, and last fired time (webhook URLs and secrets masked) |
 | `POST` | `/api/alerts/rules` | Create: `{"name", "kind", "threshold", "window"?, "cooldown"?, "filters"?, "channel"?: {"url", "format"?, "secret"?, "notify_resolved"?}, "enabled"?}` |
 | `PATCH` | `/api/alerts/rules/{rule_id_or_name}` | Update any of the fields above |
