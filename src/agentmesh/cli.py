@@ -79,6 +79,8 @@ def main() -> None:
     swarms_list = swarms_subcommands.add_parser("list", help="List recent swarms")
     swarms_list.add_argument("--limit", type=int, default=20)
     swarms_list.add_argument("--query", help="Match swarm id, name, or service")
+    swarms_check = swarms_subcommands.add_parser("check", help="Evaluate swarm-wide limits once (e.g. from cron when no server runs)")
+    swarms_check.add_argument("--no-enforce", action="store_true", help="Report breaches without halting swarms")
     swarms_show = swarms_subcommands.add_parser("show", help="Show a swarm's summary, roles, and insights")
     swarms_show.add_argument("swarm_id")
     swarms_show.add_argument("--full", action="store_true", help="Include every agent, edge, message, and the timeline")
@@ -358,6 +360,8 @@ def main() -> None:
         store = create_store(args.db)
         if args.swarms_command == "list":
             _print(store.list_swarms(limit=args.limit, query=args.query))
+        elif args.swarms_command == "check":
+            _print(store.check_swarm_limits(enforce=not args.no_enforce))
         else:
             detail = store.get_swarm(args.swarm_id)
             if detail is None:

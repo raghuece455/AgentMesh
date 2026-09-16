@@ -26,6 +26,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agentmesh.policy import short_name
+from agentmesh.policy_store import _halt_json
+from agentmesh.swarm_limits import swarm_limit_status
 from agentmesh.types import JsonObject, dumps_json, loads_json, utc_now
 
 SWARM_ID_KEYS = ("agentmesh.swarm.id", "swarm.id")
@@ -344,7 +346,19 @@ def swarm_rows(conn: sqlite3.Connection, swarm_id: str, max_spans: int = MAX_SWA
     ]
     for message in messages:
         message.pop("content_json", None)
+    swarm_json = {
+        "swarm_id": swarm["swarm_id"],
+        "name": swarm["name"] or swarm["swarm_id"],
+        "service_name": swarm["service_name"],
+        "environment": swarm["environment"],
+    }
+    halt = conn.execute(
+        "select * from policy_halts where scope = 'swarm' and value = ? and released_at is null order by created_at desc",
+        (swarm_id,),
+    ).fetchone()
     return {
+        "halt": _halt_json(halt) if halt is not None else None,
+        **swarm_limit_status(conn, swarm_json),
         "swarm": {
             "swarm_id": swarm["swarm_id"],
             "name": swarm["name"] or swarm["swarm_id"],
@@ -369,6 +383,9 @@ def swarm_report(rows: JsonObject) -> JsonObject:
     return {
         **rows["swarm"],
         "is_demo": any(bool(trace.get("is_demo")) for trace in traces),
+        "halt": rows["halt"],
+        "usage": rows["usage"],
+        "limits": rows["limits"],
         "traces": traces,
         **report,
     }

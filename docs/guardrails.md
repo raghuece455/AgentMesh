@@ -162,6 +162,40 @@ Spend and tokens are known only after an LLM call returns, so the call that cros
 
 Several policies can apply at once. Every non-allow decision is recorded, and the strictest enforced one decides: `deny` over `require_approval` over `warn`.
 
+### Swarm limits
+
+Per-trace limits are counted inside each agent's own process, so they cannot cap a [swarm](swarms.md) that spreads over many processes: 200 workers each obeying "50 tool calls" still make 10,000 calls. A `swarm:` block limits the swarm as a whole:
+
+```yaml
+name: swarm-safety
+mode: enforce
+swarm:
+  max_agents: 500                 # agents started in the swarm
+  max_concurrent_agents: 200      # running at the same time
+  max_spawn_rate_per_minute: 120  # how fast it is growing
+  max_cost_usd: 50
+  max_tokens: 5_000_000
+  max_duration_minutes: 30
+  match: {service: research-*}    # optional: only swarms whose name, service, or environment match
+```
+
+| Limit | Stops the swarm when |
+|---|---|
+| `max_agents` | more than N agents have started in it |
+| `max_concurrent_agents` | more than N agents are running at once |
+| `max_spawn_rate_per_minute` | more than N agents started in the last minute |
+| `max_cost_usd` | spend reaches N dollars |
+| `max_tokens` | usage reaches N tokens |
+| `max_duration_minutes` | it has been running N minutes |
+
+The server evaluates these from the spans it has received and **halts the swarm** when one is broken: every agent in it fails its next call, in every process, and the halt stays until someone releases it on the Guardrails page. In `monitor` mode the breach is recorded and nothing is stopped.
+
+This is not instant. A swarm is stopped once its spans reach the server (about a second), the server has evaluated the limits (`AGENTMESH_SWARM_LIMIT_INTERVAL_SECONDS`, default 15), and its agents have polled the halt (`AGENTMESH_GUARDRAILS_REFRESH_SECONDS`, default 5) — so expect a handful of seconds and some overshoot. Use per-trace limits for instant, in-process caps and swarm limits for the total.
+
+A limit halts a swarm once. If you release that halt while the swarm is still over the limit, AgentMesh leaves it alone — the override is yours — until a different limit breaks.
+
+Run a check yourself with `agentmesh swarms check` or `POST /api/swarms/check`; `--no-enforce` (`?enforce=false`) is a dry run that writes nothing. The Swarms page shows usage against every limit that applies.
+
 ---
 
 ## Simulate before you enforce
@@ -252,6 +286,7 @@ Or set `AGENTMESH_POLICY_FILE=policies/production.yaml` (several files separated
 | `AGENTMESH_POLICY_FILE` | | Extra policy files to enforce |
 | `AGENTMESH_GUARDRAILS_REFRESH_SECONDS` | `5` | How often policies and halts are reloaded |
 | `AGENTMESH_GUARDRAILS_FAIL_CLOSED` | `false` | Deny calls while no policies could be loaded |
+| `AGENTMESH_SWARM_LIMIT_INTERVAL_SECONDS` | `15` | How often the server checks swarm limits; `0` turns the scheduler off (use `agentmesh swarms check`) |
 
 ### Exceptions
 
@@ -273,6 +308,7 @@ agentmesh policy show <name>
 agentmesh policy enable <name> | disable <name> | remove <name>
 agentmesh policy simulate <file-or-name> [--hours 24] [--limit 200]
 agentmesh policy decisions [--action blocked|would_block|require_approval|warn] [--trace <id>]
+agentmesh swarms check [--no-enforce]                # evaluate swarm limits once
 agentmesh halt create (--all | --swarm ID | --service NAME | --agent NAME | --trace ID) [--reason TEXT]
 agentmesh halt list [--all]
 agentmesh halt release <halt_id>
@@ -292,6 +328,7 @@ agentmesh halt release <halt_id>
 | `GET` | `/api/guardrails/runtime` | Enabled policies and active halts, polled by SDKs |
 | `GET` / `POST` | `/api/halts` | List (`?active=false` for history) or create `{"scope": "service", "value": "support-bot", "reason": "..."}`; scopes: `all`, `swarm`, `service`, `agent`, `trace` |
 | `POST` | `/api/halts/{halt_id}/release` | Lift a halt |
+| `POST` | `/api/swarms/check` | Evaluate swarm limits now; `?enforce=false` reports without halting |
 | `POST` / `GET` | `/api/approvals`, `/api/approvals/{approval_id}` | Request an approval and poll it (used by SDKs) |
 
 Invalid policies return `422` with `{"error": "invalid_policy", "errors": [...]}`, listing every problem found.

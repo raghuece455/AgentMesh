@@ -61,6 +61,18 @@ LIMITS: dict[str, str] = {
     "max_agent_depth": "Agents nested inside agents",
     "max_child_agents": "Agents started directly by one agent",
 }
+# Limits for a whole swarm, counted across every process and trace in it. Unlike per-trace limits
+# they cannot be checked inside one agent, so the server evaluates them from the spans it has and
+# halts the swarm when one is broken. See agentmesh.swarm_limits.
+SWARM_LIMITS: dict[str, str] = {
+    "max_agents": "Agents started in one swarm",
+    "max_concurrent_agents": "Agents running at the same time",
+    "max_spawn_rate_per_minute": "Agents started per minute",
+    "max_cost_usd": "Spend across the swarm, in USD",
+    "max_tokens": "Tokens used across the swarm",
+    "max_duration_minutes": "Time since the swarm started, in minutes",
+}
+SWARM_MATCH_KEYS = ("name", "service", "environment")
 # Severity when several decisions apply to one call: the strictest wins.
 SEVERITY = {"allow": 0, "warn": 1, "require_approval": 2, "deny": 3}
 DEFAULT_APPROVAL_TIMEOUT_SECONDS = 300.0
@@ -90,6 +102,8 @@ class Policy:
     mode: str = "enforce"
     rules: tuple[Rule, ...] = ()
     limits: dict[str, float] = field(default_factory=dict)
+    swarm_limits: dict[str, float] = field(default_factory=dict)
+    swarm_match: JsonObject = field(default_factory=dict)
     approval_timeout_seconds: float = DEFAULT_APPROVAL_TIMEOUT_SECONDS
     description: str | None = None
     policy_id: str | None = None
@@ -101,7 +115,7 @@ class Policy:
         errors: list[str] = []
         if not isinstance(document, dict):
             raise PolicyError(["policy must be a mapping"])
-        unknown = set(document) - {"name", "description", "mode", "rules", "limits", "approval", "enabled"}
+        unknown = set(document) - {"name", "description", "mode", "rules", "limits", "swarm", "approval", "enabled"}
         if unknown:
             errors.append(f"unknown top-level keys: {', '.join(sorted(unknown))}")
         name = document.get("name")
@@ -115,6 +129,7 @@ class Policy:
         if mode not in MODES:
             errors.append(f"mode must be one of {', '.join(MODES)}")
         limits = _parse_limits(document.get("limits") or {}, errors)
+        swarm_limits, swarm_match = _parse_swarm(document.get("swarm") or {}, errors)
         rules = _parse_rules(document.get("rules") or [], errors)
         approval = document.get("approval") or {}
         timeout = DEFAULT_APPROVAL_TIMEOUT_SECONDS
@@ -126,7 +141,7 @@ class Policy:
                 errors.append("approval.timeout_seconds must be a positive number")
             else:
                 timeout = float(timeout_value)
-        if not rules and not limits:
+        if not rules and not limits and not swarm_limits:
             errors.append("a policy needs at least one rule or limit")
         if errors:
             raise PolicyError(errors)
@@ -135,6 +150,8 @@ class Policy:
             mode=str(mode),
             rules=tuple(rules),
             limits=limits,
+            swarm_limits=swarm_limits,
+            swarm_match=swarm_match,
             approval_timeout_seconds=timeout,
             description=document.get("description"),
             policy_id=policy_id,
@@ -146,6 +163,11 @@ class Policy:
             spec["description"] = self.description
         if self.limits:
             spec["limits"] = {key: int(value) if value.is_integer() else value for key, value in self.limits.items()}
+        if self.swarm_limits or self.swarm_match:
+            spec["swarm"] = {
+                **{key: int(value) if value.is_integer() else value for key, value in self.swarm_limits.items()},
+                **({"match": self.swarm_match} if self.swarm_match else {}),
+            }
         if self.rules:
             spec["rules"] = [
                 {
@@ -201,6 +223,34 @@ def _parse_limits(raw: Any, errors: list[str]) -> dict[str, float]:
         else:
             limits[key] = float(value)
     return limits
+
+
+def _parse_swarm(raw: Any, errors: list[str]) -> tuple[dict[str, float], JsonObject]:
+    """Parse the ``swarm:`` block: limits for a whole swarm, plus an optional ``match``."""
+    if not isinstance(raw, dict):
+        errors.append("swarm must be a mapping")
+        return {}, {}
+    limits: dict[str, float] = {}
+    match: JsonObject = {}
+    for key, value in raw.items():
+        if key == "match":
+            if not isinstance(value, dict):
+                errors.append("swarm.match must be a mapping")
+                continue
+            for match_key, pattern in value.items():
+                if match_key not in SWARM_MATCH_KEYS:
+                    errors.append(f"swarm.match: unknown key '{match_key}' (known: {', '.join(SWARM_MATCH_KEYS)})")
+                elif not (isinstance(pattern, str) or (isinstance(pattern, list) and all(isinstance(item, str) for item in pattern))):
+                    errors.append(f"swarm.match.{match_key} must be a pattern or a list of patterns")
+                else:
+                    match[match_key] = pattern
+        elif key not in SWARM_LIMITS:
+            errors.append(f"unknown swarm limit '{key}' (known: {', '.join(SWARM_LIMITS)}, match)")
+        elif not _is_number(value) or value <= 0:
+            errors.append(f"swarm.{key} must be a positive number")
+        else:
+            limits[key] = float(value)
+    return limits, match
 
 
 def _parse_rules(raw: Any, errors: list[str]) -> list[Rule]:
@@ -542,6 +592,11 @@ def matches(match: JsonObject, context: ActionContext) -> bool:
             if not re.search(str(expected), _text(context.arguments), flags=re.IGNORECASE):
                 return False
     return True
+
+
+def glob_match(value: str | None, patterns: Any) -> bool:
+    """Case-insensitive ``*`` matching against one pattern or a list of them."""
+    return _glob(value, patterns)
 
 
 def _glob(value: str | None, patterns: Any) -> bool:

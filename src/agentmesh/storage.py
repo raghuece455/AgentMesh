@@ -1343,6 +1343,12 @@ class SQLiteStore:
 
         return self._write(swarms.trace_swarms, trace_id)  # type: ignore[return-value]
 
+    def check_swarm_limits(self, now: object = None, enforce: bool = True) -> list[JsonObject]:
+        """Evaluate swarm-wide limits once: halt swarms that broke one, record every breach."""
+        from agentmesh import swarm_limits
+
+        return self._write(swarm_limits.check_swarm_limits, now, enforce)  # type: ignore[return-value]
+
     def get_swarm(self, swarm_id: str) -> JsonObject | None:
         """Read the swarm's rows under the lock, then build its graph without holding it."""
         from agentmesh import swarms

@@ -71,6 +71,7 @@ def _seed(store: SQLiteStore, database: str, reset: bool, reset_mode: str) -> Js
     traces.extend(swarm_traces)
     store.add_trace_to_dataset("support-answers", session_traces[1], metadata={"note": "approved answer from production"})
     alerts = _seed_alert_rules(store)
+    store.check_swarm_limits()  # records what the monitor-mode swarm policy would have stopped
     store.close()
     return {
         "experiments": experiments,
@@ -409,6 +410,15 @@ limits:
   max_cost_usd: 5
   max_agent_depth: 4
   max_child_agents: 10
+""",
+    """name: swarm-safety
+description: Limits for a whole swarm, counted across every process in it.
+mode: monitor
+swarm:
+  max_agents: 120
+  max_concurrent_agents: 40
+  max_spawn_rate_per_minute: 200
+  max_cost_usd: 5
 """,
     """name: approved-models
 description: Trying out an approved-model list before enforcing it.

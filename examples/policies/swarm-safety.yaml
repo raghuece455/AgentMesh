@@ -1,0 +1,23 @@
+# Limits for a whole swarm, counted across every process in it. See docs/swarms.md and
+# docs/guardrails.md. Per-trace limits cannot cap a swarm: 200 workers each obeying
+# "50 tool calls" still make 10,000 calls.
+#
+#   agentmesh policy apply examples/policies/swarm-safety.yaml
+#   agentmesh swarms check --no-enforce      # what would be halted right now
+
+name: swarm-safety
+description: Stop a swarm that grows, spends, or runs past what we planned for.
+mode: monitor                     # watch first; switch to enforce once the numbers look right
+
+swarm:
+  max_agents: 500                 # agents started in one swarm
+  max_concurrent_agents: 200      # agents running at the same time
+  max_spawn_rate_per_minute: 120  # how fast it is growing
+  max_cost_usd: 50                # spend across the swarm
+  max_tokens: 5000000
+  max_duration_minutes: 60
+  # match: {service: research-*}  # only swarms from these services
+
+limits:                           # per trace, enforced inside each agent's own process
+  max_child_agents: 25
+  max_agent_depth: 5

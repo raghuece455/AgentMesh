@@ -105,6 +105,7 @@ with tracer.start_as_current_span("research", links=[Link(parent, {"agentmesh.li
 Opening a swarm shows:
 
 - totals: agents, roles, traces, max depth, max fan-out, LLM and tool calls, cost, failed agents, duration;
+- **Swarm limits**: usage against every limit a policy sets for this swarm, and a banner naming the policy when a limit halted it;
 - **Activity**: agents running, started, and failed over the swarm's lifetime;
 - **Insights**, each linked to the agent it is about;
 - **Graph**: one card per agent, left to right by who started whom, with message and handoff edges. Swarms of more than 120 agents open grouped by **role** (agent name), with counts on nodes and edges; switch between the two at any time. Past 600 agents only the role graph is drawn — find individual agents in the Agents tab;
@@ -118,7 +119,21 @@ A trace that belongs to a swarm links to it from the trace header.
 
 ## Stopping a swarm
 
-**Stop swarm** on the dashboard, `agentmesh halt create --swarm <swarm_id>`, or `POST /api/halts` with `{"scope": "swarm", "value": "<swarm_id>"}` stops every agent in the swarm at its next tool call, LLM call, or agent start, in every process that traces with the Python SDK, until the halt is released on the Guardrails page. Swarm-wide limits (total agents, total spend, spawn rate across processes) are planned; per-trace limits such as `max_child_agents` and `max_agent_depth` already apply. See [guardrails.md](guardrails.md).
+**Stop swarm** on the dashboard, `agentmesh halt create --swarm <swarm_id>`, or `POST /api/halts` with `{"scope": "swarm", "value": "<swarm_id>"}` stops every agent in the swarm at its next tool call, LLM call, or agent start, in every process that traces with the Python SDK, until the halt is released on the Guardrails page.
+
+A swarm can also stop itself. A policy's `swarm:` block limits the swarm as a whole — agents started, agents running at once, agents started per minute, spend, tokens, and how long it has run — counted across every process, because per-trace limits cannot see the rest of the swarm:
+
+```yaml
+name: swarm-safety
+mode: enforce
+swarm:
+  max_agents: 500
+  max_concurrent_agents: 200
+  max_spawn_rate_per_minute: 120
+  max_cost_usd: 50
+```
+
+The server checks these every few seconds and halts a swarm that breaks one; the Swarms page shows usage against each limit, and which policy set it. Releasing that halt keeps the swarm running even if it is still over the limit. See [guardrails.md](guardrails.md#swarm-limits).
 
 ---
 
@@ -127,11 +142,13 @@ A trace that belongs to a swarm links to it from the trace header.
 ```bash
 agentmesh swarms list [--query research] [--limit 20]
 agentmesh swarms show <swarm_id> [--full]      # summary, roles, insights; --full adds every agent, edge, and message
+agentmesh swarms check [--no-enforce]         # evaluate swarm limits once (the server also does this on a schedule)
 ```
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/swarms` | Swarm runs with status, agents, failed agents, traces, calls, tokens, cost, duration. Query params: `q`, `hours`, `limit`, `offset` |
-| `GET` | `/api/swarms/{swarm_id}` | Summary, agents (`nodes`), `edges`, `roles`, `messages`, `timeline`, `insights`, and member `traces` |
+| `GET` | `/api/swarms/{swarm_id}` | Summary, agents (`nodes`), `edges`, `roles`, `messages`, `timeline`, `insights`, member `traces`, swarm-limit `usage` and `limits`, and the active `halt` |
+| `POST` | `/api/swarms/check` | Evaluate swarm limits now; `?enforce=false` reports breaches without halting |
 
 The MCP server adds `list_swarms` and `get_swarm`, so a coding agent can ask "which agents in this swarm failed, and why?".

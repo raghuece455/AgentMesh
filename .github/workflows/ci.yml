@@ -37,6 +37,7 @@ jobs:
         run: |
           python examples/guardrails.py
           python -m agentmesh.cli policy validate examples/policies/production-safety.yaml
+          python -m agentmesh.cli policy validate examples/policies/swarm-safety.yaml
       - name: Agent swarm example
         run: python examples/agent_swarm.py
 
@@ -181,5 +182,6 @@ jobs:
           curl -sf http://127.0.0.1:8795/api/guardrails/runtime > /dev/null
           curl -sf http://127.0.0.1:8795/api/halts > /dev/null
           curl -sf http://127.0.0.1:8795/api/swarms > /dev/null
+          curl -sf -X POST "http://127.0.0.1:8795/api/swarms/check?enforce=false" > /dev/null
           curl -sf -X POST -H "Content-Type: application/json" -d '{"resourceSpans": []}' http://127.0.0.1:8795/v1/traces > /dev/null
           echo "All dashboard endpoints OK"

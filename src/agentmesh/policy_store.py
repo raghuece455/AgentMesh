@@ -194,6 +194,17 @@ def list_policies(conn: sqlite3.Connection) -> list[JsonObject]:
     return [_policy_json(row, include_source=False) for row in rows]
 
 
+def enabled_policies(conn: sqlite3.Connection) -> list[Policy]:
+    """Enabled policies as :class:`Policy` objects, skipping any that no longer validate."""
+    policies: list[Policy] = []
+    for row in conn.execute("select policy_id, spec_json from policies where enabled = 1 order by created_at asc").fetchall():
+        try:
+            policies.append(Policy.from_spec(loads_json(row["spec_json"]) or {}, policy_id=row["policy_id"]))
+        except PolicyError:
+            continue
+    return policies
+
+
 # ---------------------------------------------------------------------------
 # Decisions
 # ---------------------------------------------------------------------------
@@ -225,6 +236,10 @@ def save_decision(conn: sqlite3.Connection, decision: JsonObject) -> None:
             decision.get("created_at") or utc_now(),
         ),
     )
+
+
+def decision_exists(conn: sqlite3.Connection, decision_id: str) -> bool:
+    return conn.execute("select 1 from policy_decisions where decision_id = ?", (decision_id,)).fetchone() is not None
 
 
 def list_decisions(
