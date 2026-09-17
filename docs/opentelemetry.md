@@ -45,14 +45,14 @@ The export is an `ExportTraceServiceRequest` in OTLP/JSON form. To move a trace 
       "resource": {
         "attributes": [
           {"key": "service.name", "value": {"stringValue": "agentmesh"}},
-          {"key": "service.version", "value": {"stringValue": "0.4.2"}},
+          {"key": "service.version", "value": {"stringValue": "0.5.0"}},
           {"key": "agentmesh.trace_id", "value": {"stringValue": "trace_7e5c1f62f7c5f239"}},
           {"key": "agentmesh.environment", "value": {"stringValue": "local"}}
         ]
       },
       "scopeSpans": [
         {
-          "scope": {"name": "agentmesh.otel_export", "version": "0.4.2"},
+          "scope": {"name": "agentmesh.otel_export", "version": "0.5.0"},
           "spans": [
             {
               "traceId": "5b8aa5a2d2c872e8321cf37308d69df2",

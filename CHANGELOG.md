@@ -6,6 +6,12 @@ All notable changes to AgentMesh are documented here. AgentMesh follows [Semanti
 
 ## [Unreleased]
 
+---
+
+## [0.5.0] — 2026-09-17
+
+Agents you can stop, not just watch. Guardrails check a policy before every tool call, LLM call, and agent start; risky calls wait for a person; a kill switch halts a trace, an agent, a service, or a whole swarm. Agent swarms become a first-class run across traces and processes, with limits counted over every process in them. AgentMesh records what agents reached and what data they read, and blocks a call to an unapproved host before it is made. Alerts fire on all of it. `agentmesh-sdk` 0.5.0 is published to keep the versions aligned; the TypeScript SDK code is unchanged and guardrail enforcement there is next.
+
 ### Added
 - **Swarm and egress anomaly alerts.** Six new alert kinds: `new_destination` (a host or store nothing had reached before), `swarm_agents`, `swarm_spawn_rate`, `swarm_cost`, `swarm_errors`, and `swarm_loop` (two agents handing work back and forth). They notify once per offending destination or swarm, scope with the `swarm` and `access_kind` filters, and link straight to the swarm. Limits stop a swarm; these tell a person. The Alerts page groups kinds into Runs, Access, and Swarms and offers the matching scope fields; `agentmesh alerts add` gains `--swarm` and `--access-kind`; `GET /api/alerts/kinds` now returns those groups. See [docs/alerts.md](docs/alerts.md#swarm-and-egress-anomalies).
 - **Egress and data access.** AgentMesh records every host an agent reached and every store it read or wrote — from HTTP span attributes, URLs in tool arguments, retrievals, memory operations, `db.system` / `file.path`, and `agentmesh.record_access(...)`. The new **Access** page lists destinations and resources with accesses, agents, errors, and a **new** flag for anything first seen in the range; traces show a **Reached** card and swarms an **Access** tab. Policy rules match on `host`, so `except: {host: [...]}` is an allowlist enforced before the call is made. `GET /api/access`, `GET /api/access/summary`, `agentmesh access summary | list`, and the MCP tool `list_access`. See [docs/access.md](docs/access.md).
@@ -17,6 +23,8 @@ All notable changes to AgentMesh are documented here. AgentMesh follows [Semanti
 - `examples/agent_swarm.py`; the demo seed adds two swarms.
 - **Guardrails.** Policies checked before every tool call, LLM call, and agent start in the Python SDK (`@observe`, `span()`), OpenAI and Anthropic instrumentation (before the HTTP request), and the AgentMesh runtime. Rules match on tool, model, agent, service, environment, arguments, or an input regex and `deny`, `require_approval`, `warn`, or `allow`. Per-trace limits stop tool loops (`max_repeated_calls`), runaway spend and tokens, long runs, deep agent nesting, and swarm fan-out. `monitor` mode records what would be blocked without blocking. Blocked calls raise `agentmesh.PolicyViolation`. See [docs/guardrails.md](docs/guardrails.md).
 - **Kill switch.** Halt a trace, an agent, a service, or everything from the dashboard, `agentmesh halt create`, or `POST /api/halts`; running agents stop at their next call (`AgentHalted`) within seconds. Halts and releases are audited.
+- **Approvals page** in the dashboard: pending and resolved reviews with the tool, its arguments, the agent that asked, the risk level, a link to the trace, and Approve/Reject; the demo seeds a pending review queue.
+- **Access page** in the dashboard (under Monitor): destinations and resources for the selected range with accesses, agents, traces, errors, last use, and a **new** flag, plus per-destination drill-down.
 - **Blocking approvals.** `require_approval` pauses the call until a reviewer answers on the Approvals page, without blocking the event loop in async code; unanswered requests are denied after `approval.timeout_seconds`.
 - **Policy simulation.** Replay recorded traces through a draft or saved policy to see which traces and calls it would have stopped: dashboard editor, `agentmesh policy simulate`, `POST /api/policies/simulate`.
 - **Guardrails page** in the dashboard: active halts, blocked/approval/would-block counts, policies with a YAML editor and templates, decisions log, and halt history. Traces stopped by a policy show a callout with each stopped call. `g r` opens the page.
