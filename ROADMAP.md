@@ -6,7 +6,7 @@ This roadmap reflects the current plan. Community feedback shapes priorities —
 
 ---
 
-## Released: v0.4 (current: 0.4.2) — Observe any agent
+## Released: v0.4 — Observe any agent
 
 - OTLP/HTTP trace receiver with OpenTelemetry GenAI semantic-convention, OpenInference, OpenLLMetry and Vercel AI SDK mapping.
 - Python tracing SDK (`@observe`, `trace`, `span`, `score`) and OpenAI/Anthropic client auto-instrumentation.
@@ -21,11 +21,17 @@ This roadmap reflects the current plan. Community feedback shapes priorities —
 - Alerts for failure rate/count, spend, expensive traces, p95 latency, and tool loops, with Slack, Discord, and signed webhooks.
 - PostgreSQL storage for every feature.
 
-## Next: v0.5 — Scale and depth
+## Released: v0.5.0 — Stop agents, not just watch them
 
-- **Egress and data access** *(in progress)* — hosts agents reached and data they read, recorded from spans; `host` rules that block a call to an unapproved domain before it is made; the Access page, CLI, API, and MCP tool, and `new_destination` alerts for anything reached for the first time.
-- **Agent swarms** *(in progress)* — swarm runs across traces and processes (SDK and OpenTelemetry), the swarm graph with roles, messages and handoffs, activity and insights, swarm halts, and swarm-wide limits counted across processes (agents, concurrency, spawn rate, spend, tokens, runtime). Anomaly alerts fire on swarm size, spawn rate, spend, failures, agents looping between each other, and new destinations. Next: ClickHouse for very large swarms.
-- **Guardrails** *(in progress)* — policies that deny, pause for approval, or limit tool calls, LLM calls, and agents before they run; loop, spend, depth, and fan-out limits; monitor mode and simulation on recorded traces; a kill switch. Python SDK, OpenAI/Anthropic instrumentation, and the runtime first; TypeScript SDK enforcement next.
+- **Guardrails, approvals, and the kill switch** — policies that deny, pause for approval, or limit tool calls, LLM calls, and agents before they run; loop, spend, depth, and fan-out limits; monitor mode and simulation on recorded traces; a kill switch. Python SDK, OpenAI/Anthropic instrumentation, and the runtime first; TypeScript SDK enforcement next.
+- **Agent swarms** — swarm runs across traces and processes (SDK and OpenTelemetry), the swarm graph with roles, messages and handoffs, activity and insights, swarm halts, and swarm-wide limits counted across processes (agents, concurrency, spawn rate, spend, tokens, runtime). Anomaly alerts fire on swarm size, spawn rate, spend, failures, agents looping between each other, and new destinations.
+- **Egress and data access** — hosts agents reached and data they read, recorded from spans; `host` rules that block a call to an unapproved domain before it is made; the Access page, CLI, API, and MCP tool, and `new_destination` alerts for anything reached for the first time.
+
+---
+
+## Next: v0.6 — Scale and reach
+
+- **Guardrails in the TypeScript SDK** — the same policy format and enforcement points as Python, so a Node agent is stopped by the same rules.
 - **OTLP logs** — ingest GenAI content events sent as OTel log records (e.g. Claude Code telemetry).
 - **gRPC OTLP receiver** — accept the Collector's default protocol without a relay.
 - **ClickHouse backend** — for very high span volumes and long retention.

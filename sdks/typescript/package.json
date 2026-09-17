@@ -1,6 +1,6 @@
 {
   "name": "agentmesh-sdk",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Trace, score, and evaluate AI agents in TypeScript/JavaScript. Sends OpenTelemetry (OTLP/JSON) traces to AgentMesh, the open-source agent observability platform.",
   "license": "MIT",
   "author": "Raghu Juluri",

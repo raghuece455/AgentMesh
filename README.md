@@ -3,7 +3,7 @@
 [![CI](https://github.com/raghuece455/AgentMesh/actions/workflows/ci.yml/badge.svg)](https://github.com/raghuece455/AgentMesh/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
-[![Version](https://img.shields.io/badge/version-0.4.2-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-orange.svg)](CHANGELOG.md)
 [![OpenTelemetry GenAI](https://img.shields.io/badge/OpenTelemetry-GenAI%20semconv-blueviolet.svg)](docs/integrations.md)
 [![MCP](https://img.shields.io/badge/MCP-server-black.svg)](docs/mcp.md)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
@@ -564,9 +564,7 @@ See [SECURITY.md](SECURITY.md) for the full security policy and reporting instru
 
 ## Project Status
 
-`v0.4.2` — alpha. Ingestion, SDK, dashboard, and runtime are ready for local development, evaluation, and single-team self-hosting.
-
-> **Released vs. `main`.** `pip install agentmesh-ai` gives you 0.4.2. Guardrails, approvals, agent swarms, swarm-wide limits, egress and data-access controls, and the swarm anomaly alerts are on `main` and ship in 0.5.0 — run them today with [Quickstart from source](#quickstart-from-source).
+`v0.5.0` — alpha. Ingestion, SDK, dashboard, guardrails, and runtime are ready for local development, evaluation, and single-team self-hosting.
 
 **Implemented — observe:** OTLP/HTTP trace ingestion with GenAI semantic-convention mapping, Python and TypeScript tracing SDKs, OpenAI and Anthropic auto-instrumentation, sessions/users/tags, scores and feedback, automatic trace insights, agent swarms across traces and processes (graph, roles, messages, insights), egress and data-access records, per-MTok pricing with cache rates and community price sync, retention pruning, SQLite and PostgreSQL storage.
 
@@ -635,7 +633,7 @@ Good first issues are labeled [`good first issue`](https://github.com/raghuece45
 | [docs/mcp.md](docs/mcp.md) | MCP server for Claude Code, Cursor, and other MCP clients |
 | [Setup.md](Setup.md) | Full setup guide — providers, Docker, PostgreSQL, troubleshooting |
 | [HOW_IT_WORKS.md](HOW_IT_WORKS.md) | Deep dive — architecture, sequence diagrams, data flow, use cases |
-| [ROADMAP.md](ROADMAP.md) | Planned milestones — v0.4, v0.5, v1.0 |
+| [ROADMAP.md](ROADMAP.md) | What shipped in v0.4 and v0.5, and what is planned for v0.6 and v1.0 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — setup, dev principles, adding providers |
 | [docs/](docs/) | Reference docs — agents, tools, memory, CLI, dashboard, OTEL |
 

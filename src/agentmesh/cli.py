@@ -957,7 +957,7 @@ def _version() -> str:
     try:
         return version("agentmesh-ai")
     except PackageNotFoundError:
-        return "0.4.2"
+        return "0.5.0"
 
 
 if __name__ == "__main__":
