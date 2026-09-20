@@ -662,6 +662,21 @@ def materialize_workflow_created(conn: sqlite3.Connection, trace_id: str, name: 
     )
 
 
+def write_row(conn: sqlite3.Connection, table: str, row: Any, **changes: Any) -> None:
+    """Write ``row`` back with ``changes`` applied, as a whole row rather than a patch.
+
+    Rewriting a few columns of an existing row is the one write a column store cannot take cheaply
+    (see :mod:`agentmesh.backends`), and it is never needed: the caller has the row in hand, so it
+    can write all of it. Reads every column off the row, so a migration that adds one is carried
+    along without touching this.
+    """
+    values = {name: row[name] for name in row.keys()}
+    values.update(changes)
+    columns = ", ".join(values)  # table and column names are ours, never caller input
+    marks = ", ".join("?" for _ in values)
+    conn.execute(f"insert or replace into {table} ({columns}) values ({marks})", tuple(values.values()))
+
+
 def materialize_workflow_finished(
     conn: sqlite3.Connection,
     trace_id: str,
@@ -671,32 +686,23 @@ def materialize_workflow_finished(
 ) -> None:
     now = utc_now()
     error = error_value if isinstance(error_value, dict) else {}
-    started = conn.execute("select started_at from workflow_runs where trace_id = ?", (trace_id,)).fetchone()
-    duration = _duration_ms(started["started_at"], now) if started else None
-    conn.execute(
-        """
-        update workflow_runs
-        set status = ?, ended_at = ?, duration_ms = ?, output_json = ?, error_type = ?, error_message = ?
-        where trace_id = ?
-        """,
-        (
-            status,
-            now,
-            duration,
-            dumps_json(output_value),
-            _string(error.get("kind") or error.get("error_type")),
-            _string(error.get("message") or error.get("error_message")),
-            trace_id,
-        ),
-    )
-    conn.execute(
-        """
-        update traces
-        set status = ?, ended_at = ?, duration_ms = ?
-        where trace_id = ?
-        """,
-        (status, now, duration, trace_id),
-    )
+    run = conn.execute("select * from workflow_runs where trace_id = ?", (trace_id,)).fetchone()
+    duration = _duration_ms(run["started_at"], now) if run is not None else None
+    if run is not None:
+        write_row(
+            conn,
+            "workflow_runs",
+            run,
+            status=status,
+            ended_at=now,
+            duration_ms=duration,
+            output_json=dumps_json(output_value),
+            error_type=_string(error.get("kind") or error.get("error_type")),
+            error_message=_string(error.get("message") or error.get("error_message")),
+        )
+    trace = conn.execute("select * from traces where trace_id = ?", (trace_id,)).fetchone()
+    if trace is not None:
+        write_row(conn, "traces", trace, status=status, ended_at=now, duration_ms=duration)
 
 
 def materialize_event(conn: sqlite3.Connection, event: Any) -> None:
@@ -1973,7 +1979,9 @@ def _materialize_model_event(
                 dumps_json(payload.get("metadata", {})),
             ),
         )
-        _refresh_provider_health(conn)
+        # Provider health is derived from model_calls and recomputed by list_provider_health, the
+        # only thing that reads it. Refreshing it here re-aggregated the whole table on every model
+        # call, and was the last write on the runtime path that rewrote rows in place.
 
 
 def _materialize_tool_event(

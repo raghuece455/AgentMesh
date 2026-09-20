@@ -318,17 +318,20 @@ class SQLiteStore:
         output_value: JsonValue | None = None,
         error_value: JsonValue | None = None,
     ) -> None:
-        from agentmesh.observability import materialize_workflow_finished
+        from agentmesh.observability import materialize_workflow_finished, write_row
 
         with self._lock:
-            self._conn.execute(
-                """
-                update workflows
-                set status = ?, ended_at = ?, output_json = ?, error_json = ?
-                where trace_id = ?
-                """,
-                (status, utc_now(), dumps_json(output_value), dumps_json(error_value), trace_id),
-            )
+            row = self._conn.execute("select * from workflows where trace_id = ?", (trace_id,)).fetchone()
+            if row is not None:
+                write_row(
+                    self._conn,
+                    "workflows",
+                    row,
+                    status=status,
+                    ended_at=utc_now(),
+                    output_json=dumps_json(output_value),
+                    error_json=dumps_json(error_value),
+                )
             materialize_workflow_finished(self._conn, trace_id, status, output_value, error_value)
             self._conn.commit()
 

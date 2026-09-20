@@ -69,15 +69,13 @@ def test_swarms_is_the_append_only_table_and_stays_that_way():
         assert not _targets(pattern), "swarms must only ever be appended to; the rollup folds it on read"
 
 
-def test_the_hot_path_is_classified_and_mostly_append_or_replace():
-    """A mutation per span would sink a column store; per finished run is the known exception."""
+def test_nothing_on_the_hot_path_rewrites_rows_in_place():
+    """A mutation per span or per trace is what a column store cannot absorb."""
     assert HOT_TABLES <= set(TABLE_WRITES)
     mutating = sorted(HOT_TABLES & tables_with(MUTATE))
-    # traces and workflow_runs are rewritten when the AgentMesh runtime finishes a run. Ingest
-    # upserts them instead, so this is one mutation per run of the optional runtime, not per span.
-    assert mutating == ["traces", "workflow_runs"], (
-        f"a new hot table rewrites rows in place: {mutating}. Per-span mutation is what a column "
-        "store cannot absorb, so this needs a decision, not a passing test."
+    assert mutating == [], (
+        f"a hot table rewrites rows in place: {mutating}. Per-span or per-trace mutation is what a "
+        "column store cannot absorb, so this needs a decision, not a passing test."
     )
 
 

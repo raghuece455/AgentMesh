@@ -21,6 +21,8 @@ each table has to declare which of three contracts it needs.
 ``MUTATE``
     Some columns are rewritten after the row was written, which no other contract can express. On a
     column store each one is a real mutation, so these want to stay small and off the hot path.
+    Nothing written per span or per trace needs this: where the caller has the row in hand it uses
+    :func:`agentmesh.observability.write_row` and writes all of it.
 
 The point of writing it down is that :mod:`tests.test_backends` checks it against the code: every
 table is classified, and a statement that rewrites a table in place has to be one the table admits
@@ -48,11 +50,11 @@ TABLE_WRITES: dict[str, str] = {
     "tasks": REPLACE,
     "audit_logs": APPEND,
     "prompt_versions": APPEND,
-    # The run itself. Ingest upserts these, but the AgentMesh runtime finishes a run by rewriting
-    # its status, end, and duration, which is why they mutate.
-    "traces": MUTATE,
-    "workflow_runs": MUTATE,
-    "workflows": MUTATE,
+    # The run itself. Both ingest and the runtime write whole rows, so finishing a run supersedes
+    # the row rather than patching it.
+    "traces": REPLACE,
+    "workflow_runs": REPLACE,
+    "workflows": REPLACE,
     "workflows_catalog": REPLACE,
     # Swarms. ``swarms`` is the one table whose duplicate-looking rows carry information.
     "swarms": APPEND,
