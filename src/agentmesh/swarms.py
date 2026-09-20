@@ -43,10 +43,26 @@ MAX_MESSAGES = 5_000
 MESSAGE_CONTENT_CHARS = 2_000
 TIMELINE_BUCKETS = 60
 
+# One row per swarm, folded from its append-only rows. Read it as a table: ``from {SWARM_ROLLUP} s``.
+# ``max`` skips nulls, so a name that only arrives in a later batch still wins; the earliest start
+# and the latest end survive whatever order the batches landed in.
+SWARM_ROLLUP = """(
+      select swarm_id,
+        max(name) as name,
+        max(service_name) as service_name,
+        max(environment) as environment,
+        min(first_seen_at) as first_seen_at,
+        max(last_seen_at) as last_seen_at
+      from swarms group by swarm_id
+    )"""
+
+# ``swarms`` is append-only: one row per ingest batch, never updated in place. A batch that arrives
+# knowing more (a name, an earlier start, a later end) adds a row instead of rewriting one, so the
+# ingest path only ever inserts — the shape a column store can take.
 SWARM_SCHEMA = [
     """
     create table if not exists swarms (
-      swarm_id text primary key,
+      swarm_id text not null,
       name text,
       service_name text,
       environment text,
@@ -55,6 +71,7 @@ SWARM_SCHEMA = [
     )
     """,
     "create index if not exists idx_swarms_last_seen on swarms(last_seen_at)",
+    "create index if not exists idx_swarms_id on swarms(swarm_id)",
     """
     create table if not exists swarm_traces (
       swarm_id text not null,
@@ -131,14 +148,12 @@ def write_trace_swarms(conn: sqlite3.Connection, trace_id: str, items: Iterable[
     batch_start = min(str(item.span.start_time) for item in items)
     for swarm_id, entry in declared.items():
         seen = str(entry["seen"])
+        # What this batch saw, appended. :data:`SWARM_ROLLUP` folds the rows when a swarm is read,
+        # so widening the window or filling in a name costs an insert, not an update.
         conn.execute(
-            "insert or ignore into swarms (swarm_id, name, service_name, environment, first_seen_at, last_seen_at) values (?, ?, ?, ?, ?, ?)",
+            "insert into swarms (swarm_id, name, service_name, environment, first_seen_at, last_seen_at) values (?, ?, ?, ?, ?, ?)",
             (swarm_id, entry["name"], entry["service"], entry["environment"], batch_start, seen),
         )
-        conn.execute("update swarms set last_seen_at = ? where swarm_id = ? and last_seen_at < ?", (seen, swarm_id, seen))
-        conn.execute("update swarms set first_seen_at = ? where swarm_id = ? and first_seen_at > ?", (batch_start, swarm_id, batch_start))
-        if entry["name"]:
-            conn.execute("update swarms set name = ? where swarm_id = ? and name is null", (entry["name"], swarm_id))
         conn.execute("insert or ignore into swarm_traces (swarm_id, trace_id, added_at) values (?, ?, ?)", (swarm_id, trace_id, now))
 
 
@@ -205,7 +220,7 @@ def list_swarms(conn: sqlite3.Connection, limit: int = 50, offset: int = 0, quer
         params.append(since)
     where = f"where {' and '.join(clauses)}" if clauses else ""
     rows = conn.execute(
-        f"select * from swarms s {where} order by s.last_seen_at desc limit ? offset ?",
+        f"select * from {SWARM_ROLLUP} s {where} order by s.last_seen_at desc limit ? offset ?",
         (*params, max(min(int(limit), 500), 1), max(int(offset), 0)),
     ).fetchall()
     swarms = [dict(row) for row in rows]
@@ -287,7 +302,7 @@ def list_swarms(conn: sqlite3.Connection, limit: int = 50, offset: int = 0, quer
 def trace_swarms(conn: sqlite3.Connection, trace_id: str) -> list[JsonObject]:
     """The swarms a trace belongs to (usually one)."""
     rows = conn.execute(
-        "select s.swarm_id, s.name from swarm_traces st join swarms s on s.swarm_id = st.swarm_id where st.trace_id = ? order by s.first_seen_at",
+        f"select s.swarm_id, s.name from swarm_traces st join {SWARM_ROLLUP} s on s.swarm_id = st.swarm_id where st.trace_id = ? order by s.first_seen_at",
         (trace_id,),
     ).fetchall()
     return [{"swarm_id": row["swarm_id"], "name": row["name"] or row["swarm_id"]} for row in rows]
@@ -295,7 +310,7 @@ def trace_swarms(conn: sqlite3.Connection, trace_id: str) -> list[JsonObject]:
 
 def swarm_rows(conn: sqlite3.Connection, swarm_id: str, max_spans: int = MAX_SWARM_SPANS) -> JsonObject | None:
     """Everything a swarm report is built from. Kept separate so the graph is built outside the store lock."""
-    swarm = conn.execute("select * from swarms where swarm_id = ?", (swarm_id,)).fetchone()
+    swarm = conn.execute(f"select * from {SWARM_ROLLUP} s where s.swarm_id = ?", (swarm_id,)).fetchone()
     if swarm is None:
         return None
     traces = [

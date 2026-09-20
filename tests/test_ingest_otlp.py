@@ -434,3 +434,33 @@ def test_workflow_list_counts_runs_not_model_calls(db_url):
     assert workflow["runs"] == 1
     assert workflow["failed_runs"] == 0
     assert workflow["total_cost"] == pytest.approx(4.2)
+
+
+def test_a_late_root_renames_the_run_without_rewriting_its_spans(tmp_path):
+    """Correcting a trace's name must not rewrite the rows already written for it.
+
+    Rewriting every span and cost record of a trace was the one write on the ingest path that was
+    not an append. SQLite only: the statements are read off sqlite3's trace callback.
+    """
+    store = create_store(str(tmp_path / "rename.db"))
+    store.ingest_spans(decode_json(otlp([llm_span()])))
+    assert store.get_observable_trace(TRACE_ID)["workflow_name"] == "support-bot"  # no root yet
+
+    statements: list[str] = []
+    store._conn.set_trace_callback(lambda sql: statements.append(" ".join(sql.split()).lower()))  # noqa: SLF001
+    store.ingest_spans(decode_json(otlp([root_span(), tool_span()])))
+    store._conn.set_trace_callback(None)  # noqa: SLF001
+
+    # The whole point: ingest only appends, so a column store can take the same writes.
+    assert not [sql for sql in statements if sql.startswith(("update ", "delete "))], statements
+
+    assert store.get_observable_trace(TRACE_ID)["workflow_name"] == "researcher"
+    # The provisional name's catalogue entry has no runs left, so it is filtered out on read
+    # instead of deleted during ingest.
+    assert [item["workflow_name"] for item in store.list_workflows()] == ["researcher"]
+    # The cost record still carries the provisional name, so the workflow dimension has to read the
+    # settled one off the run.
+    by_workflow = {row["name"]: row for row in store.cost_by_dimension("workflow")}
+    assert list(by_workflow) == ["researcher"], by_workflow
+    assert by_workflow["researcher"]["estimated_cost"] == pytest.approx(2.1)
+    store.close()

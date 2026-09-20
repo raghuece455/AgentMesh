@@ -154,12 +154,14 @@ def check_swarm_limits(conn: sqlite3.Connection, now: datetime | None = None, en
     if not policies:
         return []
     cutoff = (moment - timedelta(minutes=RECENTLY_ACTIVE_MINUTES)).isoformat()
+    from agentmesh.swarms import SWARM_ROLLUP  # imported here: swarms imports this module
+
     swarms = [
         dict(row)
         for row in conn.execute(
-            """
+            f"""
             select s.swarm_id, s.name, s.service_name, s.environment, s.last_seen_at
-            from swarms s
+            from {SWARM_ROLLUP} s
             where s.last_seen_at >= ? or exists (
               select 1 from swarm_traces st join workflow_runs wr on wr.trace_id = st.trace_id
               where st.swarm_id = s.swarm_id and wr.status = 'running'

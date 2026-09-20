@@ -657,8 +657,10 @@ def _upsert_trace(conn: sqlite3.Connection, trace_id: str, items: list[Normalize
         output_json = output_json or existing["output_json"]
         if root is None:
             error_type, error_message = existing["error_type"], existing["error_message"]
-        elif existing["workflow_name"] != name:
-            _rename_trace(conn, trace_id, workflow_id, name)
+        # A root that arrives after its children renames the run, but only on ``workflow_runs`` and
+        # ``traces`` below. The name each span and cost record carries is left as it was: rewriting
+        # a whole trace's rows to correct a label is the one write here that is not an append, and
+        # readers that need the current name take it from the run (see ``cost_by_dimension``).
 
     now = datetime.now(UTC).isoformat()
     conn.execute(
@@ -734,12 +736,9 @@ def _upsert_trace(conn: sqlite3.Connection, trace_id: str, items: list[Normalize
             dumps_json(metadata),
         ),
     )
-    if existing is not None and existing["workflow_id"] != workflow_id:
-        # A provisional name (from a child batch) was replaced by the root span's name.
-        conn.execute(
-            "delete from workflows_catalog where workflow_id = ? and workflow_id not in (select workflow_id from workflow_runs)",
-            (existing["workflow_id"],),
-        )
+    # A provisional name (from a child batch) replaced by the root span's name leaves its catalog
+    # entry behind with no runs pointing at it. ``list_workflows`` drops those when it reads, rather
+    # than ingest deleting one per rename.
     error_json = dumps_json({"type": error_type, "message": error_message}) if error_message else dumps_json(None)
     conn.execute(
         """
@@ -756,15 +755,6 @@ def _upsert_trace(conn: sqlite3.Connection, trace_id: str, items: list[Normalize
             output_json or dumps_json(None),
             error_json,
         ),
-    )
-
-
-def _rename_trace(conn: sqlite3.Connection, trace_id: str, workflow_id: str, name: str) -> None:
-    conn.execute(
-        "update spans set workflow_id = ?, workflow_name = ? where trace_id = ?", (workflow_id, name, trace_id)
-    )
-    conn.execute(
-        "update cost_records set workflow_id = ?, workflow_name = ? where trace_id = ?", (workflow_id, name, trace_id)
     )
 
 
