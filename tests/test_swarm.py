@@ -422,3 +422,78 @@ def test_pruning_traces_removes_their_swarms_links_and_messages(tmp_path):
     assert pruned["deleted_rows"]["span_links"] == 6 and pruned["deleted_rows"]["agent_messages_log"] == 2
     assert store.list_swarms() == [] and store.get_swarm("swarm_market") is None
     store.close()
+
+
+def test_ingesting_a_swarm_only_appends(tmp_path):
+    """Ingest must never update a swarm row: append-only is what a column store can take.
+
+    SQLite only — the statements are read off sqlite3's trace callback.
+    """
+    store = create_store(str(tmp_path / "appends.db"))
+    statements: list[str] = []
+    store._conn.set_trace_callback(lambda sql: statements.append(" ".join(sql.split()).lower()))  # noqa: SLF001
+    for index in range(3):
+        trace_id = f"{index + 1:032x}"
+        store.ingest_spans(decode_json(payload(
+            [otel_span(trace_id, f"{index + 1:02x}" * 8, "batch", start=index, end=index + 1)],
+            swarm_id="swarm_appends",
+        )))
+    store._conn.set_trace_callback(None)  # noqa: SLF001
+
+    touched = [sql for sql in statements if "swarms" in sql and "swarm_traces" not in sql]
+    assert [sql for sql in touched if sql.startswith("insert into swarms")], "ingest should write swarms"
+    assert not [sql for sql in touched if sql.startswith(("update", "delete"))], touched
+
+    rows = store._read(lambda conn: conn.execute("select count(*) as n from swarms").fetchone()["n"])  # noqa: SLF001
+    assert rows == 3, "one row per ingest batch"
+    store.close()
+
+
+def test_the_rollup_folds_batches_whatever_order_they_arrive_in(db_url):
+    """A later batch can carry the name, an earlier one the real start: reads see the union."""
+    store = create_store(db_url)
+    # The second half of the run arrives first, and without the swarm's name.
+    store.ingest_spans(decode_json({"resourceSpans": [{
+        "resource": {"attributes": [attr("service.name", "fleet"), attr("agentmesh.swarm.id", "swarm_folded")]},
+        "scopeSpans": [{"scope": {"name": "test"}, "spans": [otel_span("b" * 32, "b1" * 8, "late", start=50, end=60)]}],
+    }]}))
+    assert store.list_swarms()[0]["name"] == "swarm_folded"  # no name yet, so the id stands in
+
+    # Then the beginning, which knows what the swarm is called.
+    store.ingest_spans(decode_json(payload([otel_span("c" * 32, "c1" * 8, "early", start=0, end=10)], swarm_id="swarm_folded")))
+
+    swarm = store.get_swarm("swarm_folded")
+    assert swarm["name"] == "market research", "a name from any batch wins over none"
+    assert swarm["first_seen_at"] < swarm["last_seen_at"]
+    listed = store.list_swarms()[0]
+    assert listed["traces"] == 2 and listed["last_seen_at"] == swarm["last_seen_at"]
+    store.close()
+
+
+def test_a_database_with_the_old_keyed_swarms_table_is_rebuilt(tmp_path):
+    """Migration 7 drops the primary key without losing the swarms already recorded."""
+    import sqlite3
+
+    path = tmp_path / "legacy.db"
+    legacy = sqlite3.connect(path)
+    legacy.execute(
+        "create table swarms (swarm_id text primary key, name text, service_name text, environment text,"
+        " first_seen_at text not null, last_seen_at text not null)"
+    )
+    legacy.execute("insert into swarms values ('swarm_old', 'old run', 'svc', 'production', '2026-01-01', '2026-01-02')")
+    legacy.commit()
+    legacy.close()
+
+    store = create_store(str(path))
+    kept = store.list_swarms()
+    assert [item["swarm_id"] for item in kept] == ["swarm_old"] and kept[0]["name"] == "old run"
+
+    # The rebuilt table takes a second row for the same swarm, which the old primary key refused.
+    store._write(lambda conn: conn.execute(  # noqa: SLF001
+        "insert into swarms values ('swarm_old', null, 'svc', 'production', '2025-12-31', '2026-01-03')"
+    ))
+    rolled = store.list_swarms()[0]
+    assert rolled["last_seen_at"] == "2026-01-03"
+    assert rolled["started_at"] == "2025-12-31", "the earliest start across rows wins"
+    assert rolled["name"] == "old run", "a later row without a name must not erase it"
+    store.close()

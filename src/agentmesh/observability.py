@@ -481,6 +481,45 @@ def _apply_lightweight_migrations(conn: sqlite3.Connection) -> None:
         "insert or ignore into schema_migrations (version, name, applied_at) values (6, 'resource_access', ?)",
         (utc_now(),),
     )
+    _make_swarms_append_only(conn)
+
+
+def _make_swarms_append_only(conn: sqlite3.Connection) -> None:
+    """Drop the primary key on ``swarms`` so ingest can append instead of updating rows in place.
+
+    Rebuilt rather than altered because SQLite cannot drop a constraint. Guarded by the migration
+    row instead of by inspecting the key, because ``pragma table_info`` does not survive the
+    PostgreSQL adapter's translation with its ``pk`` flag intact.
+
+    Safe to run from two processes at once: the table holds one row per swarm, so the exclusive
+    lock is brief, and a second process that read the guard before the first finished simply copies
+    the rebuilt table into another one and renames that, which lands on the same rows.
+    """
+    applied = {int(row["version"]) for row in conn.execute("select version from schema_migrations").fetchall()}
+    if 7 in applied:
+        return
+    columns = "swarm_id, name, service_name, environment, first_seen_at, last_seen_at"
+    conn.execute(
+        """
+        create table if not exists swarms_rebuilt (
+          swarm_id text not null,
+          name text,
+          service_name text,
+          environment text,
+          first_seen_at text not null,
+          last_seen_at text not null
+        )
+        """
+    )
+    conn.execute(f"insert into swarms_rebuilt ({columns}) select {columns} from swarms")
+    conn.execute("drop table swarms")
+    conn.execute("alter table swarms_rebuilt rename to swarms")
+    conn.execute("create index if not exists idx_swarms_last_seen on swarms(last_seen_at)")
+    conn.execute("create index if not exists idx_swarms_id on swarms(swarm_id)")
+    conn.execute(
+        "insert or ignore into schema_migrations (version, name, applied_at) values (7, 'swarms_append_only', ?)",
+        (utc_now(),),
+    )
 
 
 # v0.4: datasets, experiments, and alerting. Written in the SQL subset shared by SQLite and PostgreSQL.
@@ -1023,6 +1062,9 @@ def list_workflows(conn: sqlite3.Connection) -> list[JsonObject]:
         -- one row per run: joining cost_records directly repeated each run once per model call
         left join trace_costs tc on tc.trace_id = wr.trace_id
         group by wc.workflow_id
+        -- A workflow is always catalogued with a run, so no runs means the name was provisional and
+        -- a late root span renamed the trace away from it.
+        having count(wr.run_id) > 0
         order by wc.updated_at desc
         """
     ).fetchall()
@@ -1232,13 +1274,22 @@ def cost_by_dimension(conn: sqlite3.Connection, dimension: str) -> list[JsonObje
         "provider": "provider",
     }
     column = allowed[dimension]
+    if dimension == "workflow":
+        # A cost record keeps the workflow name that was known when the call was recorded, which is
+        # a service name when the root span had not arrived yet. The run carries the settled name,
+        # and its trace_id is unique, so this join groups by what the trace is actually called.
+        source = "cost_records cr left join workflow_runs wr on wr.trace_id = cr.trace_id"
+        name = "coalesce(wr.workflow_name, cr.workflow_name, 'unknown')"
+    else:
+        source = "cost_records cr"
+        name = f"coalesce(cr.{column}, 'unknown')"
     rows = conn.execute(
         f"""
-        select coalesce({column}, 'unknown') as name, count(*) as calls,
-               sum(total_tokens) as total_tokens, sum(estimated_cost) as estimated_cost,
-               avg(latency_ms) as avg_latency_ms
-        from cost_records
-        group by coalesce({column}, 'unknown')
+        select {name} as name, count(*) as calls,
+               sum(cr.total_tokens) as total_tokens, sum(cr.estimated_cost) as estimated_cost,
+               avg(cr.latency_ms) as avg_latency_ms
+        from {source}
+        group by {name}
         order by estimated_cost desc
         """
     ).fetchall()

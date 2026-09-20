@@ -6,6 +6,11 @@ All notable changes to AgentMesh are documented here. AgentMesh follows [Semanti
 
 ## [Unreleased]
 
+### Changed
+- **Ingest only appends.** Recording spans no longer updates or deletes any row: a swarm's window and name are appended per batch and folded when the swarm is read, a root span that arrives after its children renames the run without rewriting that trace's spans and cost records, and a provisional workflow whose name was superseded is filtered out of the Workflows list instead of deleted during ingest. Groundwork for a column-store backend, and fewer writes per batch on SQLite and PostgreSQL too. Schema migration 7 drops the primary key on `swarms`.
+- Cost by workflow reads the name from the run rather than from each cost record, so a trace renamed by a late root span is grouped under its settled name.
+- A workflow with no runs is no longer listed. One is only ever catalogued together with a run, so this can only be a provisional name that a later root span replaced.
+
 ---
 
 ## [0.5.0] — 2026-09-17

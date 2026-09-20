@@ -51,6 +51,7 @@ from agentmesh.access import CHUNK
 from agentmesh.access import KINDS as ACCESS_KINDS
 from agentmesh.policy import glob_match
 from agentmesh.swarm_limits import swarm_usage
+from agentmesh.swarms import SWARM_ROLLUP
 from agentmesh.types import JsonObject, dumps_json, loads_json, new_id, utc_now
 
 logger = logging.getLogger("agentmesh.alerts")
@@ -610,7 +611,7 @@ def _active_swarms(conn: Any, rule: JsonObject, since: str) -> list[JsonObject]:
             clauses.append(f"and {column} = ?")
             params.append(str(filters[key]))
     rows = conn.execute(
-        f"select swarm_id, name, service_name, environment from swarms where last_seen_at >= ? {' '.join(clauses)} order by last_seen_at desc limit ?",
+        f"select s.swarm_id, s.name, s.service_name, s.environment from {SWARM_ROLLUP} s where s.last_seen_at >= ? {' '.join(clauses)} order by s.last_seen_at desc limit ?",
         (since, *params, MAX_SWARMS),
     ).fetchall()
     swarms = [dict(row) for row in rows]
