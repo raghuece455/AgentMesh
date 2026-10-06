@@ -66,3 +66,33 @@ async def test_event_driven_workflow(tmp_path):
     assert result.output == "handled start"
     assert any(event["event_type"] == "event.received" for event in store.list_events(result.trace_id))
 
+
+
+@pytest.mark.asyncio
+async def test_finishing_a_run_supersedes_its_rows_instead_of_patching_them(tmp_path):
+    """The runtime finished a run by rewriting a few columns, which a column store cannot take.
+
+    SQLite only: the statements are read off sqlite3's trace callback.
+    """
+    store = SQLiteStore(tmp_path / "agentmesh.db")
+    workflow = Workflow("test-append-only", WorkflowMode.SEQUENTIAL, store=store)
+    workflow.add_agent(Agent("a", "First", "Return first.", MockModelProvider(["done"])))
+    workflow.add_step("a", "step one")
+
+    statements: list[str] = []
+    store._conn.set_trace_callback(lambda sql: statements.append(" ".join(sql.split()).lower()))  # noqa: SLF001
+    result = await workflow.run({"goal": "test"})
+    store._conn.set_trace_callback(None)  # noqa: SLF001
+
+    assert result.status == "succeeded"
+    assert not [sql for sql in statements if sql.startswith("update ")], statements
+
+    # The whole-row rewrite still settles the run, and keeps what it was started with.
+    run = store._read(lambda conn: dict(conn.execute(  # noqa: SLF001
+        "select status, ended_at, duration_ms, workflow_name, started_at from workflow_runs where trace_id = ?",
+        (result.trace_id,),
+    ).fetchone()))
+    assert run["status"] == "succeeded" and run["ended_at"] and run["duration_ms"] is not None
+    assert run["workflow_name"] == "test-append-only" and run["started_at"]
+    trace = store.get_observable_trace(result.trace_id)
+    assert trace["status"] == "succeeded" and trace["ended_at"]
