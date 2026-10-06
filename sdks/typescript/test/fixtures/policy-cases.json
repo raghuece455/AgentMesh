@@ -1,0 +1,105 @@
+[
+  {
+    "name": "prod guard: deny, approval, allow-exempt, model except",
+    "policies": [
+      {
+        "policy_id": "p1",
+        "spec": {
+          "name": "prod-guard",
+          "limits": { "max_repeated_calls": 2, "max_cost_usd": 1 },
+          "rules": [
+            { "name": "no-prod-deletes", "match": { "tool": ["delete_*", "drop_*"], "arguments": { "environment": "production" } }, "action": "deny", "reason": "Deleting production data needs a person." },
+            { "name": "refunds", "match": { "tool": "issue_refund" }, "action": "require_approval" },
+            { "name": "trusted-lookup", "match": { "tool": "lookup" }, "action": "allow" },
+            { "name": "approved-models", "match": { "kind": "llm" }, "except": { "model": ["gpt-4.1*", "claude-*"] }, "action": "deny" }
+          ]
+        }
+      }
+    ],
+    "steps": [
+      { "record": false, "context": { "kind": "tool", "name": "DELETE_user", "arguments": { "environment": "Production" } } },
+      { "record": false, "context": { "kind": "tool", "name": "delete_user", "arguments": { "environment": "staging" } } },
+      { "record": false, "context": { "kind": "tool", "name": "delete_user" } },
+      { "record": false, "context": { "kind": "tool", "name": "issue_refund", "arguments": { "amount": 5 } } },
+      { "record": false, "context": { "kind": "llm", "name": "chat", "model": "gpt-3.5-turbo" } },
+      { "record": false, "context": { "kind": "llm", "name": "chat", "model": "claude-sonnet-5" } },
+      { "record": true, "context": { "kind": "tool", "name": "search", "arguments": { "q": "same" } } },
+      { "record": true, "context": { "kind": "tool", "name": "search", "arguments": { "q": "same" } } },
+      { "record": false, "context": { "kind": "tool", "name": "search", "arguments": { "q": "same" } } },
+      { "usage": { "tokens": 1000, "cost_usd": 1.0 } },
+      { "record": false, "context": { "kind": "tool", "name": "search", "arguments": { "q": "same" } } }
+    ]
+  },
+  {
+    "name": "qualified names and nested arguments",
+    "policies": [
+      {
+        "policy_id": "p2",
+        "spec": {
+          "name": "content",
+          "rules": [
+            { "name": "deletes", "match": { "tool": "delete_*" }, "action": "deny" },
+            { "name": "wire", "match": { "tool": "pay", "arguments": { "payee.country": ["KP", "IR"] } }, "action": "deny" },
+            { "name": "secrets", "match": { "kind": "any", "input_regex": "sk-[a-z0-9]{8}" }, "action": "warn" },
+            { "name": "scoped", "match": { "agent": "research*", "service": "bot" }, "action": "require_approval" }
+          ]
+        }
+      }
+    ],
+    "steps": [
+      { "record": false, "context": { "kind": "tool", "name": "Tools.delete_user" } },
+      { "record": false, "context": { "kind": "tool", "name": "main.<locals>.delete_user" } },
+      { "record": false, "context": { "kind": "tool", "name": "undelete_user.v2" } },
+      { "record": false, "context": { "kind": "tool", "name": "pay", "arguments": { "payee": { "country": "IR" } } } },
+      { "record": false, "context": { "kind": "tool", "name": "pay", "arguments": { "payee": { "country": "FR" } } } },
+      { "record": false, "context": { "kind": "tool", "name": "post", "arguments": { "body": "key SK-abcd1234" } } },
+      { "record": false, "context": { "kind": "tool", "name": "search", "agent": "research-bot", "service": "bot" } },
+      { "record": false, "context": { "kind": "tool", "name": "search", "agent": "research-bot", "service": "other" } }
+    ]
+  },
+  {
+    "name": "counted limits and agent nesting",
+    "policies": [
+      {
+        "policy_id": "p3",
+        "spec": {
+          "name": "limits",
+          "limits": { "max_tool_calls": 2, "max_llm_calls": 1, "max_agent_depth": 2, "max_child_agents": 1, "max_steps": 10 }
+        }
+      }
+    ],
+    "steps": [
+      { "record": true, "context": { "kind": "tool", "name": "a", "arguments": { "i": 0 } } },
+      { "record": true, "context": { "kind": "tool", "name": "a", "arguments": { "i": 1 } } },
+      { "record": false, "context": { "kind": "tool", "name": "a", "arguments": { "i": 9 } } },
+      { "record": true, "context": { "kind": "llm", "name": "chat", "model": "gpt-4.1" } },
+      { "record": false, "context": { "kind": "llm", "name": "chat", "model": "gpt-4.1" } },
+      { "record": true, "context": { "kind": "agent", "name": "planner", "span_id": "s1" } },
+      { "record": true, "context": { "kind": "agent", "name": "worker", "span_id": "s2", "parent_span_id": "s1" } },
+      { "record": false, "context": { "kind": "agent", "name": "worker-2", "span_id": "s3", "parent_span_id": "s1" } },
+      { "register": { "span_id": "s2-tool", "parent_span_id": "s2", "is_agent": false } },
+      { "record": false, "context": { "kind": "agent", "name": "deep", "span_id": "s4", "parent_span_id": "s2-tool" } }
+    ]
+  },
+  {
+    "name": "monitor mode and egress allowlist",
+    "policies": [
+      { "policy_id": "p4", "spec": { "name": "watch", "mode": "monitor", "rules": [{ "name": "all-tools", "match": { "kind": "tool" }, "action": "deny" }] } },
+      {
+        "policy_id": "p5",
+        "spec": {
+          "name": "egress",
+          "rules": [
+            { "name": "approved-domains-only", "match": { "kind": "tool", "host": "*" }, "except": { "host": ["*.mycompany.com", "api.openai.com"] }, "action": "deny" }
+          ]
+        }
+      }
+    ],
+    "steps": [
+      { "record": false, "context": { "kind": "tool", "name": "fetch", "arguments": { "url": "https://pastebin.com/raw/x" } } },
+      { "record": false, "context": { "kind": "tool", "name": "fetch", "arguments": { "url": "https://files.mycompany.com/a" } } },
+      { "record": false, "context": { "kind": "tool", "name": "add", "arguments": { "a": 1, "b": 2 } } },
+      { "record": false, "context": { "kind": "llm", "name": "chat", "model": "gpt-4.1" } }
+    ]
+  }
+]

@@ -1,0 +1,269 @@
+[
+ {
+  "name": "prod guard: deny, approval, allow-exempt, model except",
+  "results": [
+   [
+    {
+     "action": "deny",
+     "details": {},
+     "enforced": true,
+     "policy": "prod-guard",
+     "reason": "Deleting production data needs a person.",
+     "rule": "no-prod-deletes",
+     "target": "DELETE_user"
+    }
+   ],
+   [],
+   [],
+   [
+    {
+     "action": "require_approval",
+     "details": {},
+     "enforced": true,
+     "policy": "prod-guard",
+     "reason": "tool 'issue_refund' needs approval by rule 'refunds'",
+     "rule": "refunds",
+     "target": "issue_refund"
+    }
+   ],
+   [
+    {
+     "action": "deny",
+     "details": {},
+     "enforced": true,
+     "policy": "prod-guard",
+     "reason": "llm 'gpt-3.5-turbo' blocked by rule 'approved-models'",
+     "rule": "approved-models",
+     "target": "gpt-3.5-turbo"
+    }
+   ],
+   [],
+   [],
+   [],
+   [
+    {
+     "action": "deny",
+     "details": {
+      "limit": "max_repeated_calls",
+      "max": 2.0,
+      "used": 3
+     },
+     "enforced": true,
+     "policy": "prod-guard",
+     "reason": "Tool 'search' was already called 2 times with the same arguments; stopping a likely loop",
+     "rule": "limit:max_repeated_calls",
+     "target": "search"
+    }
+   ],
+   [
+    {
+     "action": "deny",
+     "details": {
+      "limit": "max_cost_usd",
+      "max": 1.0,
+      "used": 1.0
+     },
+     "enforced": true,
+     "policy": "prod-guard",
+     "reason": "Trace spend $1.0000 reached the $1.00 limit",
+     "rule": "limit:max_cost_usd",
+     "target": "search"
+    },
+    {
+     "action": "deny",
+     "details": {
+      "limit": "max_repeated_calls",
+      "max": 2.0,
+      "used": 3
+     },
+     "enforced": true,
+     "policy": "prod-guard",
+     "reason": "Tool 'search' was already called 2 times with the same arguments; stopping a likely loop",
+     "rule": "limit:max_repeated_calls",
+     "target": "search"
+    }
+   ]
+  ]
+ },
+ {
+  "name": "qualified names and nested arguments",
+  "results": [
+   [
+    {
+     "action": "deny",
+     "details": {},
+     "enforced": true,
+     "policy": "content",
+     "reason": "tool 'Tools.delete_user' blocked by rule 'deletes'",
+     "rule": "deletes",
+     "target": "Tools.delete_user"
+    }
+   ],
+   [
+    {
+     "action": "deny",
+     "details": {},
+     "enforced": true,
+     "policy": "content",
+     "reason": "tool 'main.<locals>.delete_user' blocked by rule 'deletes'",
+     "rule": "deletes",
+     "target": "main.<locals>.delete_user"
+    }
+   ],
+   [],
+   [
+    {
+     "action": "deny",
+     "details": {},
+     "enforced": true,
+     "policy": "content",
+     "reason": "tool 'pay' blocked by rule 'wire'",
+     "rule": "wire",
+     "target": "pay"
+    }
+   ],
+   [],
+   [
+    {
+     "action": "warn",
+     "details": {},
+     "enforced": true,
+     "policy": "content",
+     "reason": "tool 'post' flagged by rule 'secrets'",
+     "rule": "secrets",
+     "target": "post"
+    }
+   ],
+   [
+    {
+     "action": "require_approval",
+     "details": {},
+     "enforced": true,
+     "policy": "content",
+     "reason": "tool 'search' needs approval by rule 'scoped'",
+     "rule": "scoped",
+     "target": "search"
+    }
+   ],
+   []
+  ]
+ },
+ {
+  "name": "counted limits and agent nesting",
+  "results": [
+   [],
+   [],
+   [
+    {
+     "action": "deny",
+     "details": {
+      "limit": "max_tool_calls",
+      "max": 2.0,
+      "used": 3
+     },
+     "enforced": true,
+     "policy": "limits",
+     "reason": "Trace reached its limit of 2 tool calls",
+     "rule": "limit:max_tool_calls",
+     "target": "a"
+    }
+   ],
+   [],
+   [
+    {
+     "action": "deny",
+     "details": {
+      "limit": "max_llm_calls",
+      "max": 1.0,
+      "used": 2
+     },
+     "enforced": true,
+     "policy": "limits",
+     "reason": "Trace reached its limit of 1 LLM calls",
+     "rule": "limit:max_llm_calls",
+     "target": "gpt-4.1"
+    }
+   ],
+   [],
+   [],
+   [
+    {
+     "action": "deny",
+     "details": {
+      "limit": "max_child_agents",
+      "max": 1.0,
+      "used": 2
+     },
+     "enforced": true,
+     "policy": "limits",
+     "reason": "The calling agent already started 1 agents, its limit",
+     "rule": "limit:max_child_agents",
+     "target": "worker-2"
+    }
+   ],
+   [
+    {
+     "action": "deny",
+     "details": {
+      "limit": "max_agent_depth",
+      "max": 2.0,
+      "used": 3
+     },
+     "enforced": true,
+     "policy": "limits",
+     "reason": "Starting agent 'deep' would nest agents 3 deep, past the limit of 2",
+     "rule": "limit:max_agent_depth",
+     "target": "deep"
+    }
+   ]
+  ]
+ },
+ {
+  "name": "monitor mode and egress allowlist",
+  "results": [
+   [
+    {
+     "action": "deny",
+     "details": {},
+     "enforced": true,
+     "policy": "egress",
+     "reason": "tool 'fetch' blocked by rule 'approved-domains-only'",
+     "rule": "approved-domains-only",
+     "target": "fetch"
+    },
+    {
+     "action": "deny",
+     "details": {},
+     "enforced": false,
+     "policy": "watch",
+     "reason": "tool 'fetch' blocked by rule 'all-tools'",
+     "rule": "all-tools",
+     "target": "fetch"
+    }
+   ],
+   [
+    {
+     "action": "deny",
+     "details": {},
+     "enforced": false,
+     "policy": "watch",
+     "reason": "tool 'fetch' blocked by rule 'all-tools'",
+     "rule": "all-tools",
+     "target": "fetch"
+    }
+   ],
+   [
+    {
+     "action": "deny",
+     "details": {},
+     "enforced": false,
+     "policy": "watch",
+     "reason": "tool 'add' blocked by rule 'all-tools'",
+     "rule": "all-tools",
+     "target": "add"
+    }
+   ],
+   []
+  ]
+ }
+]
